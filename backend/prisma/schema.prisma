@@ -1,0 +1,59 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  createdAt    DateTime  @map("created_at")
+  sessions     Session[]
+  tactics      Tactic[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id
+  userId    String   @map("user_id")
+  tokenHash String   @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model Tactic {
+  id        String     @id
+  userId    String     @map("user_id")
+  sport     String     @default("badminton")
+  format    String
+  title     String
+  notes     String     @default("")
+  tags      Json
+  createdAt DateTime   @map("created_at")
+  updatedAt DateTime   @map("updated_at")
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  snapshots Snapshot[]
+
+  @@index([userId, updatedAt(sort: Desc)])
+  @@map("tactics")
+}
+
+model Snapshot {
+  id       String @id
+  tacticId String @map("tactic_id")
+  position Int
+  players  Json
+  shot     Json
+  tactic   Tactic @relation(fields: [tacticId], references: [id], onDelete: Cascade)
+
+  @@unique([tacticId, position])
+  @@map("snapshots")
+}
