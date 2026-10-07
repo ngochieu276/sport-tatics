@@ -75,19 +75,6 @@ async function loadOwned(db: PrismaClient, userId: string, tacticId: string): Pr
   };
 }
 
-async function replaceSnapshots(tx: Prisma.TransactionClient, tacticId: string, snapshots: Snapshot[]) {
-  await tx.snapshot.deleteMany({ where: { tacticId } });
-  await tx.snapshot.createMany({
-    data: snapshots.map((snapshot, position) => ({
-      id: snapshot.id,
-      tacticId,
-      position,
-      players: json(snapshot.players),
-      shot: json(snapshot.shot),
-    })),
-  });
-}
-
 export async function listTactics(db: PrismaClient, c: Context<AppEnv>) {
   const user = c.get("user");
   const parsed = tacticQuerySchema.safeParse({
@@ -105,7 +92,14 @@ export async function listTactics(db: PrismaClient, c: Context<AppEnv>) {
       ...(format ? { format } : {}),
       ...(needle ? { title: { contains: needle, mode: "insensitive" } } : {}),
     },
-    include: { _count: { select: { snapshots: true } } },
+    select: {
+      id: true,
+      format: true,
+      title: true,
+      tags: true,
+      snapshotCount: true,
+      updatedAt: true,
+    },
     orderBy: { updatedAt: "desc" },
   });
   const tactics: TacticSummary[] = rows.flatMap((row) => {
@@ -114,10 +108,8 @@ export async function listTactics(db: PrismaClient, c: Context<AppEnv>) {
       id: row.id,
       format: row.format,
       title: row.title,
-      notes: row.notes,
       tags: asTags(row.tags),
-      snapshotCount: row._count.snapshots,
-      createdAt: row.createdAt.toISOString(),
+      snapshotCount: row.snapshotCount,
       updatedAt: row.updatedAt.toISOString(),
     }];
   });
@@ -135,8 +127,8 @@ export async function createTactic(db: PrismaClient, c: Context<AppEnv>) {
   const notes = parsed.data.notes?.trim() ?? "";
   const tags = normalizeTags(parsed.data.tags ?? []);
   const snapshot = createInitialSnapshot(parsed.data.format);
-  await db.$transaction(async (tx) => {
-    await tx.tactic.create({
+  await db.$transaction([
+    db.tactic.create({
       data: {
         id,
         userId: user.id,
@@ -145,11 +137,12 @@ export async function createTactic(db: PrismaClient, c: Context<AppEnv>) {
         title: parsed.data.title,
         notes,
         tags: json(tags),
+        snapshotCount: 1,
         createdAt: now,
         updatedAt: now,
       },
-    });
-    await tx.snapshot.create({
+    }),
+    db.snapshot.create({
       data: {
         id: snapshot.id,
         tacticId: id,
@@ -157,9 +150,20 @@ export async function createTactic(db: PrismaClient, c: Context<AppEnv>) {
         players: json(snapshot.players),
         shot: json(snapshot.shot),
       },
-    });
-  });
-  return c.json({ tactic: await loadOwned(db, user.id, id) }, 201);
+    }),
+  ]);
+  const tactic: TacticDetail = {
+    id,
+    sport: "badminton",
+    format: parsed.data.format,
+    title: parsed.data.title,
+    notes,
+    tags,
+    snapshots: [snapshot],
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  };
+  return c.json({ tactic }, 201);
 }
 
 function routeId(c: Context): string | null {
@@ -179,29 +183,67 @@ export async function patchTactic(db: PrismaClient, c: Context<AppEnv>) {
   const user = c.get("user");
   const tacticId = routeId(c);
   if (!tacticId) return c.json({ error: "Not found" }, 404);
-  const existing = await loadOwned(db, user.id, tacticId);
-  if (!existing) return c.json({ error: "Not found" }, 404);
   const parsed = tacticPatchSchema.safeParse(await readJson(c));
   if (!parsed.success) {
     return c.json({ error: parsed.error.issues[0]?.message ?? "Invalid tactic" }, 400);
   }
-  const message = snapshotListError(existing.format, parsed.data.snapshots);
-  if (message) return c.json({ error: message }, 400);
   const tags = normalizeTags(parsed.data.tags);
+  const notes = parsed.data.notes.trim();
   const now = new Date();
-  await db.$transaction(async (tx) => {
-    await tx.tactic.update({
+  const snapshots = parsed.data.snapshots;
+
+  if (!snapshots) {
+    const updated = await db.tactic.updateMany({
+      where: { id: tacticId, userId: user.id },
+      data: { title: parsed.data.title, notes, tags: json(tags), updatedAt: now },
+    });
+    if (updated.count === 0) return c.json({ error: "Not found" }, 404);
+    return c.json({ updatedAt: now.toISOString() });
+  }
+
+  const existing = await db.tactic.findFirst({
+    where: { id: tacticId, userId: user.id },
+    select: { format: true, createdAt: true },
+  });
+  if (!existing || (existing.format !== "singles" && existing.format !== "doubles")) {
+    return c.json({ error: "Not found" }, 404);
+  }
+  const message = snapshotListError(existing.format, snapshots);
+  if (message) return c.json({ error: message }, 400);
+  await db.$transaction([
+    db.tactic.update({
       where: { id: tacticId },
       data: {
         title: parsed.data.title,
-        notes: parsed.data.notes.trim(),
+        notes,
         tags: json(tags),
+        snapshotCount: snapshots.length,
         updatedAt: now,
       },
-    });
-    await replaceSnapshots(tx, tacticId, parsed.data.snapshots);
-  });
-  return c.json({ tactic: await loadOwned(db, user.id, tacticId) });
+    }),
+    db.snapshot.deleteMany({ where: { tacticId } }),
+    db.snapshot.createMany({
+      data: snapshots.map((snapshot, position) => ({
+        id: snapshot.id,
+        tacticId,
+        position,
+        players: json(snapshot.players),
+        shot: json(snapshot.shot),
+      })),
+    }),
+  ]);
+  const tactic: TacticDetail = {
+    id: tacticId,
+    sport: "badminton",
+    format: existing.format,
+    title: parsed.data.title,
+    notes,
+    tags,
+    snapshots,
+    createdAt: existing.createdAt.toISOString(),
+    updatedAt: now.toISOString(),
+  };
+  return c.json({ tactic });
 }
 
 export async function removeTactic(db: PrismaClient, c: Context<AppEnv>) {

@@ -19,10 +19,8 @@ export type TacticSummary = {
   id: string;
   format: Format;
   title: string;
-  notes: string;
   tags: string[];
   snapshotCount: number;
-  createdAt: string;
   updatedAt: string;
 };
 

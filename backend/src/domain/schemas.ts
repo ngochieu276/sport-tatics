@@ -50,7 +50,7 @@ export const tacticPatchSchema = z.object({
   title: z.string().trim().min(1, "Add a title").max(80, "Titles must be 80 characters or fewer"),
   notes: z.string().max(2000, "Notes must be 2000 characters or fewer"),
   tags: z.array(tagSchema).max(8, "Use up to 8 tags"),
-  snapshots: z.array(snapshotSchema).min(1, "A tactic needs at least one rally").max(40, "A tactic can hold 40 rallies"),
+  snapshots: z.array(snapshotSchema).min(1, "A tactic needs at least one rally").max(40, "A tactic can hold 40 rallies").optional(),
 });
 
 export const tacticQuerySchema = z.object({
@@ -77,10 +77,8 @@ export type TacticSummary = {
   id: string;
   format: Format;
   title: string;
-  notes: string;
   tags: string[];
   snapshotCount: number;
-  createdAt: string;
   updatedAt: string;
 };
 

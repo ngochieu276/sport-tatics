@@ -1,27 +1,51 @@
-import { cors } from "hono/cors";
 import { Hono } from "hono";
 import type { PrismaClient } from "@prisma/client";
 import type { AppEnv } from "./app-env.js";
 import { findUser, login, logout, me, register } from "./auth.js";
 import { createTactic, listTactics, patchTactic, readTactic, removeTactic } from "./tactics.js";
 
-function allowedOrigins(): string[] {
-  return (process.env.CORS_ORIGIN ?? "")
+const BUILTIN_ORIGINS = [
+  "https://sport-tatics.vercel.app",
+  "http://localhost:5173",
+];
+
+function allowedOrigins(): Set<string> {
+  const fromEnv = (process.env.CORS_ORIGIN ?? "")
     .split(",")
-    .map((origin) => origin.trim())
+    .map((origin) => origin.trim().replace(/\/$/, ""))
     .filter(Boolean);
+  return new Set([...BUILTIN_ORIGINS, ...fromEnv]);
 }
 
 export function createApp(db: PrismaClient) {
   const app = new Hono<AppEnv>();
-  const origins = allowedOrigins();
 
-  app.use("/api/*", cors({
-    origin: (origin) => (origins.includes(origin) ? origin : null),
-    credentials: true,
-    allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allowHeaders: ["Content-Type", "Authorization"],
-  }));
+  app.use("/api/*", async (c, next) => {
+    const requestOrigin = c.req.header("origin");
+    const allowed = requestOrigin !== undefined && allowedOrigins().has(requestOrigin.replace(/\/$/, ""));
+    if (allowed && requestOrigin) {
+      c.header("Access-Control-Allow-Origin", requestOrigin);
+      c.header("Access-Control-Allow-Credentials", "true");
+      c.header("Vary", "Origin");
+    }
+    if (c.req.method === "OPTIONS") {
+      if (allowed) {
+        c.header("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
+        c.header("Access-Control-Allow-Headers", "Content-Type,Authorization");
+        c.header("Access-Control-Max-Age", "600");
+      }
+      return c.body(null, 204);
+    }
+    try {
+      await next();
+    } finally {
+      if (allowed && requestOrigin) {
+        c.header("Access-Control-Allow-Origin", requestOrigin);
+        c.header("Access-Control-Allow-Credentials", "true");
+        c.header("Vary", "Origin");
+      }
+    }
+  });
 
   app.use("/api/*", async (c, next) => {
     await next();
@@ -33,10 +57,7 @@ export function createApp(db: PrismaClient) {
     return c.json({ error: "Something went wrong" }, 500);
   });
 
-  app.get("/api/health", async (c) => {
-    await db.$queryRaw`SELECT 1`;
-    return c.json({ ok: true });
-  });
+  app.get("/api/health", (c) => c.json({ ok: true }));
 
   app.post("/api/auth/register", (c) => register(db, c));
   app.post("/api/auth/login", (c) => login(db, c));

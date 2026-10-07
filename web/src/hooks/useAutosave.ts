@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { TacticDraft } from "@/domain/types";
-import { ApiError, api } from "../lib/api";
+import { ApiError, api, apiUrl, getToken } from "../lib/api";
 
 export function useAutosave(id: string, draft: TacticDraft | null) {
   const [status, setStatus] = useState<"saved" | "saving" | "error">("saved");
   const [error, setError] = useState<string | null>(null);
   const saved = useRef("");
+  const savedSnapshots = useRef("");
   const latest = useRef("");
   const seenId = useRef<string | null>(null);
   const saving = useRef(false);
@@ -37,6 +38,8 @@ export function useAutosave(id: string, draft: TacticDraft | null) {
           setError(null);
         }
         await api(`/api/tactics/${idRef.current}`, { method: "PATCH", body });
+        const sent = JSON.parse(body) as TacticDraft;
+        if (sent.snapshots) savedSnapshots.current = JSON.stringify(sent.snapshots);
         saved.current = body;
         if (mounted.current && latest.current === body) setStatus("saved");
       }
@@ -55,13 +58,21 @@ export function useAutosave(id: string, draft: TacticDraft | null) {
 
   useEffect(() => {
     if (!draft) return;
-    const body = JSON.stringify(draft);
+    const snapshots = JSON.stringify(draft.snapshots);
     if (seenId.current !== id) {
       seenId.current = id;
+      savedSnapshots.current = snapshots;
+      const body = JSON.stringify({ title: draft.title, notes: draft.notes, tags: draft.tags });
       saved.current = body;
       latest.current = body;
       return;
     }
+    const body = JSON.stringify({
+      title: draft.title,
+      notes: draft.notes,
+      tags: draft.tags,
+      ...(snapshots === savedSnapshots.current ? {} : { snapshots: draft.snapshots }),
+    });
     latest.current = body;
     if (body === saved.current) {
       setStatus((current) => current === "error" ? current : "saved");
@@ -71,7 +82,7 @@ export function useAutosave(id: string, draft: TacticDraft | null) {
     setStatus("saving");
     const handle = window.setTimeout(() => {
       void pump.current();
-    }, 700);
+    }, 1500);
     return () => window.clearTimeout(handle);
   }, [draft, id]);
 
@@ -91,10 +102,14 @@ export function useAutosave(id: string, draft: TacticDraft | null) {
       } catch {
         return;
       }
-      void fetch(`/api/tactics/${id}`, {
+      saved.current = body;
+      const headers: Record<string, string> = { "content-type": "application/json" };
+      const token = getToken();
+      if (token) headers.authorization = `Bearer ${token}`;
+      void fetch(apiUrl(`/api/tactics/${id}`), {
         method: "PATCH",
         credentials: "include",
-        headers: { "content-type": "application/json" },
+        headers,
         body,
         keepalive: true,
       });

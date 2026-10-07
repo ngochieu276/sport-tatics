@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
 import type { Format } from "@/domain/badminton";
 import type { TacticDetail, TacticSummary } from "@/domain/types";
@@ -40,29 +40,29 @@ export function LibraryPage() {
 
   useEffect(() => {
     const controller = new AbortController();
-    const handle = window.setTimeout(() => {
-      const params = new URLSearchParams();
-      if (format) params.set("format", format);
-      if (query.trim()) params.set("q", query.trim());
-      setLoading(true);
-      api<{ tactics: TacticSummary[] }>(`/api/tactics?${params.toString()}`, { signal: controller.signal })
-        .then((result) => {
-          setTactics(result.tactics);
-          setError(null);
-        })
-        .catch((caught) => {
-          if (isAbort(caught)) return;
-          setError(caught instanceof Error ? caught.message : "Could not load tactics");
-        })
-        .finally(() => {
-          if (!controller.signal.aborted) setLoading(false);
-        });
-    }, 200);
-    return () => {
-      window.clearTimeout(handle);
-      controller.abort();
-    };
-  }, [format, query]);
+    api<{ tactics: TacticSummary[] }>("/api/tactics", { signal: controller.signal })
+      .then((result) => {
+        setTactics(result.tactics);
+        setError(null);
+      })
+      .catch((caught) => {
+        if (isAbort(caught)) return;
+        setError(caught instanceof Error ? caught.message : "Could not load tactics");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, []);
+
+  const visible = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return tactics.filter((tactic) => {
+      if (format && tactic.format !== format) return false;
+      if (needle && !tactic.title.toLowerCase().includes(needle)) return false;
+      return true;
+    });
+  }, [format, query, tactics]);
 
   async function onCreate(event: FormEvent) {
     event.preventDefault();
@@ -177,14 +177,14 @@ export function LibraryPage() {
 
           {error && <p className="mt-4 text-sm text-far" role="alert">{error}</p>}
           {loading && tactics.length === 0 ? <p className="mt-8 text-sm text-ink/60">Loading tactics…</p> : null}
-          {!loading && tactics.length === 0 ? (
+          {!loading && visible.length === 0 ? (
             <p className="mt-8 max-w-md text-ink/70">
               {query.trim() || format ? "No tactics match that search." : "Your library is empty. Create a tactic to start a rally."}
             </p>
           ) : null}
 
           <ul className="mt-5 grid gap-4 sm:grid-cols-2">
-            {tactics.map((tactic) => (
+            {visible.map((tactic) => (
               <li key={tactic.id} className="rounded-3xl bg-white p-5 ring-1 ring-ink/10">
                 <div className="flex items-start justify-between gap-3">
                   <h2 className="font-display text-2xl leading-tight">

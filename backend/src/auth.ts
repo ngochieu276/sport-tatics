@@ -83,19 +83,44 @@ async function createSession(db: PrismaClient, c: Context, userId: string): Prom
   return token;
 }
 
+const SESSION_CACHE_MS = 60_000;
+const sessionCache = new Map<string, { user: UserProfile; expiresAt: number; cachedAt: number }>();
+
+function rememberSession(tokenHash: string, user: UserProfile, expiresAt: Date) {
+  sessionCache.set(tokenHash, { user, expiresAt: expiresAt.getTime(), cachedAt: Date.now() });
+}
+
+function forgetSession(tokenHash: string) {
+  sessionCache.delete(tokenHash);
+}
+
 export async function findUser(db: PrismaClient, c: Context): Promise<UserProfile | null> {
   const token = presentedToken(c);
   if (!token) return null;
+  const tokenHash = await sha256(token);
+  const cached = sessionCache.get(tokenHash);
+  const now = Date.now();
+  if (cached && cached.expiresAt > now && now - cached.cachedAt < SESSION_CACHE_MS) {
+    return cached.user;
+  }
+  if (cached) sessionCache.delete(tokenHash);
   const row = await db.session.findUnique({
-    where: { tokenHash: await sha256(token) },
-    include: { user: true },
+    where: { tokenHash },
+    select: {
+      id: true,
+      expiresAt: true,
+      user: { select: { id: true, email: true } },
+    },
   });
   if (!row) return null;
-  if (row.expiresAt.getTime() <= Date.now()) {
+  if (row.expiresAt.getTime() <= now) {
+    forgetSession(tokenHash);
     await db.session.delete({ where: { id: row.id } });
     return null;
   }
-  return { id: row.user.id, email: row.user.email };
+  const user = { id: row.user.id, email: row.user.email };
+  rememberSession(tokenHash, user, row.expiresAt);
+  return user;
 }
 
 export async function register(db: PrismaClient, c: Context) {
@@ -130,7 +155,10 @@ export async function login(db: PrismaClient, c: Context) {
     return c.json({ error: parsed.error.issues[0]?.message ?? "Invalid account" }, 400);
   }
   const email = parsed.data.email.toLowerCase();
-  const user = await db.user.findUnique({ where: { email } });
+  const user = await db.user.findUnique({
+    where: { email },
+    select: { id: true, email: true, passwordHash: true },
+  });
   const hash = user?.passwordHash ?? DUMMY_HASH;
   const matches = bcrypt.compareSync(parsed.data.password, hash);
   if (!user || !matches) {
@@ -143,7 +171,9 @@ export async function login(db: PrismaClient, c: Context) {
 export async function logout(db: PrismaClient, c: Context) {
   const token = presentedToken(c);
   if (token) {
-    await db.session.deleteMany({ where: { tokenHash: await sha256(token) } });
+    const tokenHash = await sha256(token);
+    forgetSession(tokenHash);
+    await db.session.deleteMany({ where: { tokenHash } });
   }
   clearCookie(c);
   return c.body(null, 204);
