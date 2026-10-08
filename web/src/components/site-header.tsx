@@ -40,7 +40,9 @@ export function SiteHeader() {
           )}
         </BreadcrumbList>
       </Breadcrumb>
-      <CreateTacticDialog />
+      <div className={onEditor ? "hidden lg:block" : undefined}>
+        <CreateTacticDialog />
+      </div>
     </header>
   );
 }

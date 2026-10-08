@@ -50,7 +50,7 @@ export function Filmstrip({
     snapshots.length < 40;
 
   return (
-    <section className="flex max-h-[28vh] min-h-0 shrink-0 flex-col gap-3 overflow-hidden border-t border-border bg-card/70 px-4 py-3">
+    <section className="hidden max-h-[28vh] min-h-0 shrink-0 flex-col gap-3 overflow-hidden border-t border-border bg-card/70 px-4 py-3 lg:flex">
       <div className="flex flex-wrap items-center gap-2">
         {playing ? (
           <Button type="button" className="rounded-full" onClick={onStop}>Stop</Button>

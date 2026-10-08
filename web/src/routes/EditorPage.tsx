@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { BadmintonCourt } from "../components/BadmintonCourt";
 import { CourtToolbox } from "../components/CourtToolbox";
 import { Filmstrip } from "../components/Filmstrip";
+import { MobilePathBar } from "../components/mobile-path-bar";
 import { ShotRail } from "../components/ShotRail";
 import { useAutosave } from "../hooks/useAutosave";
 import { useRallyPlayback, type PlayMode } from "../hooks/usePlayback";
@@ -140,6 +141,18 @@ function Editor({ id }: { id: string }) {
     if (parent) setSelectedId(parent.shot.hitterId);
   }
 
+  function playPath(endId: string) {
+    if (!draft) return;
+    const line = pathTo(draft.snapshots, endId);
+    const opening = line[0];
+    if (!opening) return;
+    setSelectedCoverId(null);
+    setPathEndId(endId);
+    setRallyId(opening.id);
+    setSelectedId(opening.shot.hitterId);
+    setPlayMode("all");
+  }
+
   const missing = tacticQuery.isError && tacticQuery.error instanceof ApiError && tacticQuery.error.status === 404;
   const loadError = tacticQuery.isError && !missing
     ? (tacticQuery.error instanceof Error ? tacticQuery.error.message : "Could not load this tactic")
@@ -168,21 +181,24 @@ function Editor({ id }: { id: string }) {
 
   return (
     <div className="flex min-h-0 w-full max-w-full flex-1 flex-col overflow-hidden">
-      <header className="flex h-14 w-full shrink-0 items-center gap-3 border-b border-border px-4">
+      <header className="flex h-12 w-full shrink-0 items-center gap-3 border-b border-border px-4 lg:h-14">
+        <h1 className="min-w-0 flex-1 truncate font-display text-xl lg:hidden">
+          {draft.title || "Untitled tactic"}
+        </h1>
         <Input
           aria-label="Tactic name"
           value={draft.title}
           maxLength={80}
           onChange={(event) => setDraft({ ...draft, title: event.target.value })}
           placeholder="Tactic name"
-          className="h-10 min-w-0 flex-1 bg-card font-display text-2xl md:text-2xl"
+          className="hidden h-10 min-w-0 flex-1 bg-card font-display text-2xl lg:block"
         />
         <Badge className="bg-court/10 text-court uppercase">{format}</Badge>
-        <p className="hidden text-sm text-muted-foreground sm:block" role="status">
+        <p className="hidden text-sm text-muted-foreground lg:block" role="status">
           {titleMissing ? "Add a title to save" : status === "saving" ? "Saving…" : status === "error" ? "Not saved" : "Saved"}
         </p>
         {status === "error" && (
-          <Button type="button" variant="link" className="px-0" onClick={retry}>Retry</Button>
+          <Button type="button" variant="link" className="hidden px-0 lg:inline-flex" onClick={retry}>Retry</Button>
         )}
       </header>
       {saveError && (
@@ -190,36 +206,38 @@ function Editor({ id }: { id: string }) {
           <AlertDescription>{saveError}</AlertDescription>
         </Alert>
       )}
-      <div className="grid min-h-0 w-full flex-1 grid-cols-1 overflow-hidden max-lg:grid-rows-[minmax(0,1fr)_minmax(8rem,36vh)] lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <div className="flex h-full min-h-0 min-w-0 flex-col items-center overflow-hidden px-4 py-3">
+      <div className="grid min-h-0 w-full flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <div className="flex h-full min-h-0 min-w-0 flex-col items-center overflow-hidden px-3 py-2 lg:px-4 lg:py-3">
           <p className="mb-2 shrink-0 text-sm text-muted-foreground" aria-live="polite">
             {stepLabel} · {shotLabel}
             {playing ? " · playing" : ""}
           </p>
-          <CourtToolbox
-            disabled={playing}
-            coverCount={(snapshot.coverAreas ?? []).length}
-            selectedCoverId={selectedCoverId}
-            onAddCoverArea={() => {
-              const areas = snapshot.coverAreas ?? [];
-              if (areas.length >= MAX_COVER_AREAS) return;
-              const next = createCoverArea(format, snapshot.shot.hitterId, areas);
-              setSelectedCoverId(next.id);
-              updateSnapshot((current) => ({
-                ...current,
-                coverAreas: [...(current.coverAreas ?? []), next],
-              }));
-            }}
-            onDeleteCoverArea={() => {
-              if (!selectedCoverId) return;
-              updateSnapshot((current) => ({
-                ...current,
-                coverAreas: (current.coverAreas ?? []).filter((area) => area.id !== selectedCoverId),
-              }));
-              setSelectedCoverId(null);
-            }}
-          />
-          <div className="relative min-h-0 w-full min-w-0 flex-1 overflow-hidden">
+          <div className="hidden lg:block">
+            <CourtToolbox
+              disabled={playing}
+              coverCount={(snapshot.coverAreas ?? []).length}
+              selectedCoverId={selectedCoverId}
+              onAddCoverArea={() => {
+                const areas = snapshot.coverAreas ?? [];
+                if (areas.length >= MAX_COVER_AREAS) return;
+                const next = createCoverArea(format, snapshot.shot.hitterId, areas);
+                setSelectedCoverId(next.id);
+                updateSnapshot((current) => ({
+                  ...current,
+                  coverAreas: [...(current.coverAreas ?? []), next],
+                }));
+              }}
+              onDeleteCoverArea={() => {
+                if (!selectedCoverId) return;
+                updateSnapshot((current) => ({
+                  ...current,
+                  coverAreas: (current.coverAreas ?? []).filter((area) => area.id !== selectedCoverId),
+                }));
+                setSelectedCoverId(null);
+              }}
+            />
+          </div>
+          <div className="relative min-h-0 w-full min-w-0 flex-1 overflow-hidden max-lg:pointer-events-none">
             <BadmintonCourt
               format={format}
               players={players}
@@ -262,7 +280,12 @@ function Editor({ id }: { id: string }) {
               }}
             />
           </div>
-          <p className="mt-2 shrink-0 text-center text-xs text-muted-foreground">
+          {draft.notes.trim() ? (
+            <p className="mt-2 line-clamp-2 shrink-0 text-center text-xs text-muted-foreground lg:hidden">
+              {draft.notes}
+            </p>
+          ) : null}
+          <p className="mt-2 hidden shrink-0 text-center text-xs text-muted-foreground lg:block">
             Use Tools to add a cover area, then drag it into shape. Click × or Delete cover area to remove it.
           </p>
         </div>
@@ -311,20 +334,21 @@ function Editor({ id }: { id: string }) {
         onAddOption={addOption}
         onDelete={deleteRally}
         onPlay={() => setPlayMode("one")}
-        onPlayPath={() => {
-          const line = pathTo(draft.snapshots, snapshot.id);
-          const opening = line[0];
-          if (!opening) return;
-          setPathEndId(snapshot.id);
-          setRallyId(opening.id);
-          setPlayMode("all");
-        }}
+        onPlayPath={() => playPath(snapshot.id)}
         onStop={() => setPlayMode("idle")}
         durationScale={durationScale}
         onDurationScale={(scale) => {
           setDurationScale(scale);
           localStorage.setItem(DURATION_SCALE_KEY, String(scale));
         }}
+      />
+      <MobilePathBar
+        snapshots={draft.snapshots}
+        rallyId={snapshot.id}
+        pathEndId={pathEndId}
+        playing={playing}
+        onPlayPath={playPath}
+        onStop={() => setPlayMode("idle")}
       />
     </div>
   );

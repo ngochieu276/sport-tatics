@@ -327,6 +327,35 @@ export function pathTo(snapshots: Snapshot[], id: string): Snapshot[] {
   return path.reverse();
 }
 
+export function rallyPaths(snapshots: Snapshot[]): Snapshot[][] {
+  const opening = snapshots.find((item) => item.parentId === null);
+  if (!opening) return [];
+  const paths: Snapshot[][] = [];
+  const visit = (node: Snapshot, prefix: Snapshot[]) => {
+    const next = [...prefix, node];
+    const kids = childrenOf(snapshots, node.id);
+    if (kids.length === 0) {
+      paths.push(next);
+      return;
+    }
+    for (const child of kids) visit(child, next);
+  };
+  visit(opening, []);
+  return paths;
+}
+
+export function pathShotLabel(path: Snapshot[]): string {
+  return path.map((item) => shotProfile(item.shot.type).label).join(" → ");
+}
+
+export function pathContaining(snapshots: Snapshot[], rallyId: string): Snapshot[] {
+  const paths = rallyPaths(snapshots);
+  return paths.find((path) => path[path.length - 1]?.id === rallyId)
+    ?? paths.find((path) => path.some((item) => item.id === rallyId))
+    ?? paths[0]
+    ?? [];
+}
+
 export function descendantIds(snapshots: Snapshot[], id: string): string[] {
   const ids = [id];
   for (const child of childrenOf(snapshots, id)) ids.push(...descendantIds(snapshots, child.id));
