@@ -167,7 +167,7 @@ function Editor({ id }: { id: string }) {
   const stepLabel = rallyLabel(draft.snapshots, snapshot);
 
   return (
-    <div className="flex min-h-0 w-full max-w-full flex-1 flex-col overflow-x-hidden lg:overflow-hidden">
+    <div className="flex min-h-0 w-full max-w-full flex-1 flex-col overflow-hidden">
       <header className="flex h-14 w-full shrink-0 items-center gap-3 border-b border-border px-4">
         <Input
           aria-label="Tactic name"
@@ -190,9 +190,9 @@ function Editor({ id }: { id: string }) {
           <AlertDescription>{saveError}</AlertDescription>
         </Alert>
       )}
-      <div className="grid min-h-0 w-full flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <div className="flex min-h-130 min-w-0 flex-1 flex-col items-center px-4 py-3 lg:min-h-0">
-          <p className="mb-2 text-sm text-muted-foreground" aria-live="polite">
+      <div className="grid min-h-0 w-full flex-1 grid-cols-1 overflow-hidden max-lg:grid-rows-[minmax(0,1fr)_minmax(8rem,36vh)] lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <div className="flex h-full min-h-0 min-w-0 flex-col items-center overflow-hidden px-4 py-3">
+          <p className="mb-2 shrink-0 text-sm text-muted-foreground" aria-live="polite">
             {stepLabel} · {shotLabel}
             {playing ? " · playing" : ""}
           </p>
@@ -219,7 +219,7 @@ function Editor({ id }: { id: string }) {
               setSelectedCoverId(null);
             }}
           />
-          <div className="flex h-full min-h-0 w-full min-w-0 flex-1 items-center justify-center overflow-hidden">
+          <div className="relative min-h-0 w-full min-w-0 flex-1 overflow-hidden">
             <BadmintonCourt
               format={format}
               players={players}
@@ -262,7 +262,7 @@ function Editor({ id }: { id: string }) {
               }}
             />
           </div>
-          <p className="mt-2 text-center text-xs text-muted-foreground">
+          <p className="mt-2 shrink-0 text-center text-xs text-muted-foreground">
             Use Tools to add a cover area, then drag it into shape. Click × or Delete cover area to remove it.
           </p>
         </div>

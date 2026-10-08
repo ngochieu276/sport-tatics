@@ -50,7 +50,7 @@ export function Filmstrip({
     snapshots.length < 40;
 
   return (
-    <section className="flex shrink-0 flex-col gap-3 border-t border-border bg-card/70 px-4 py-3">
+    <section className="flex max-h-[28vh] min-h-0 shrink-0 flex-col gap-3 overflow-hidden border-t border-border bg-card/70 px-4 py-3">
       <div className="flex flex-wrap items-center gap-2">
         {playing ? (
           <Button type="button" className="rounded-full" onClick={onStop}>Stop</Button>
@@ -84,7 +84,7 @@ export function Filmstrip({
           <span className="w-10 tabular-nums">{durationScale.toFixed(1)}×</span>
         </div>
       </div>
-      <ScrollArea className="max-h-64 w-full">
+      <ScrollArea className="min-h-0 w-full flex-1">
         <div className="pb-1">
           {opening && (
             <TreeNode

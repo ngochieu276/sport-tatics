@@ -63,7 +63,7 @@ export function ShotRail({
   }
 
   return (
-    <aside className="flex min-h-0 w-full flex-col gap-5 border-t border-border bg-card/80 p-4 lg:overflow-y-auto lg:border-t-0 lg:border-l">
+    <aside className="flex min-h-0 w-full flex-col gap-5 overflow-y-auto border-t border-border bg-card/80 p-4 lg:border-t-0 lg:border-l">
       <div>
         <SectionHeading>Who hits</SectionHeading>
         <ChoiceToggle

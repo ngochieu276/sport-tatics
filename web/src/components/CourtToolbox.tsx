@@ -18,7 +18,7 @@ export function CourtToolbox({
   onDeleteCoverArea,
 }: CourtToolboxProps) {
   return (
-    <div className="mb-2 flex flex-wrap items-center gap-2" role="toolbar" aria-label="Court tools">
+    <div className="mb-2 flex shrink-0 flex-wrap items-center gap-2" role="toolbar" aria-label="Court tools">
       <SectionHeading>Tools</SectionHeading>
       <Button type="button" variant="outline" size="sm" className="rounded-full" disabled={disabled || coverCount >= MAX_COVER_AREAS} onClick={onAddCoverArea}>
         Add cover area

@@ -165,10 +165,11 @@ export function BadmintonCourt({
     <svg
       ref={svgRef}
       viewBox="-90 -50 790 1440"
+      preserveAspectRatio="xMidYMid meet"
       role="application"
       aria-label={`${format} badminton court`}
       tabIndex={0}
-      className={`block h-[62dvh] w-full max-w-full min-w-0 touch-none select-none lg:h-full ${interactive ? "cursor-crosshair" : ""}`}
+      className={`absolute inset-0 h-full w-full touch-none select-none ${interactive ? "cursor-crosshair" : ""}`}
       onPointerDown={onCourtPointerDown}
       onPointerMove={(event) => {
         if (drag.current) moveDrag(event);
