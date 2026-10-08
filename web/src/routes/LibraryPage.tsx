@@ -1,15 +1,22 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router";
+import { useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router";
 import type { Format } from "@/domain/badminton";
-import type { TacticDetail, TacticSummary } from "@/domain/types";
-import { Logo } from "../components/Logo";
-import { ApiError, api } from "../lib/api";
-import { useAuth } from "../lib/auth";
+import type { TacticSummary } from "@/domain/types";
+import { ChoiceToggle, ConfirmAction } from "@/components/forms";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { useGroups } from "@/hooks/use-groups";
+import { useDeleteTactic, usePatchTactic, useTactics } from "@/hooks/use-tactics";
 
-const filters: Array<{ id: "" | Format; label: string }> = [
-  { id: "", label: "All" },
-  { id: "singles", label: "Singles" },
-  { id: "doubles", label: "Doubles" },
+const formatFilters: Array<{ value: "all" | Format; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "singles", label: "Singles" },
+  { value: "doubles", label: "Doubles" },
 ];
 
 function formatWhen(iso: string): string {
@@ -21,200 +28,195 @@ function formatWhen(iso: string): string {
   }).format(new Date(iso));
 }
 
-function isAbort(error: unknown): boolean {
-  return error instanceof DOMException && error.name === "AbortError";
-}
-
 export function LibraryPage() {
-  const { user, logout } = useAuth();
-  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const groupId = searchParams.get("group") ?? "";
   const [query, setQuery] = useState("");
   const [format, setFormat] = useState<"" | Format>("");
-  const [tactics, setTactics] = useState<TacticSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [title, setTitle] = useState("");
-  const [createFormat, setCreateFormat] = useState<Format>("singles");
-  const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    api<{ tactics: TacticSummary[] }>("/api/tactics", { signal: controller.signal })
-      .then((result) => {
-        setTactics(result.tactics);
-        setError(null);
-      })
-      .catch((caught) => {
-        if (isAbort(caught)) return;
-        setError(caught instanceof Error ? caught.message : "Could not load tactics");
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-    return () => controller.abort();
-  }, []);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const tacticsQuery = useTactics();
+  const groupsQuery = useGroups();
+  const patchTactic = usePatchTactic();
+  const deleteTactic = useDeleteTactic();
+  const tactics = tacticsQuery.data ?? [];
+  const groups = groupsQuery.data ?? [];
+  const error = tacticsQuery.error ?? groupsQuery.error;
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return tactics.filter((tactic) => {
       if (format && tactic.format !== format) return false;
+      if (groupId && !(tactic.groups ?? []).some((group) => group.id === groupId)) return false;
       if (needle && !tactic.title.toLowerCase().includes(needle)) return false;
       return true;
     });
-  }, [format, query, tactics]);
+  }, [format, groupId, query, tactics]);
 
-  async function onCreate(event: FormEvent) {
-    event.preventDefault();
-    const nextTitle = title.trim();
-    if (!nextTitle) {
-      setCreateError("Add a title");
-      return;
-    }
-    setCreating(true);
-    setCreateError(null);
+  const loading = tacticsQuery.isPending && tactics.length === 0;
+
+  async function saveTitle(tactic: TacticSummary) {
+    const nextTitle = editTitle.trim();
+    setEditingId(null);
+    if (!nextTitle || nextTitle === tactic.title) return;
     try {
-      const result = await api<{ tactic: TacticDetail }>("/api/tactics", {
-        method: "POST",
-        body: JSON.stringify({ title: nextTitle, format: createFormat }),
-      });
-      navigate(`/tactics/${result.tactic.id}`);
-    } catch (caught) {
-      setCreateError(caught instanceof ApiError ? caught.message : "Could not create the tactic");
-      setCreating(false);
+      await patchTactic.mutateAsync({ id: tactic.id, title: nextTitle });
+    } catch {
+      /* error surfaces on the mutation; list stays as last successful data */
     }
   }
 
-  async function onDelete(tactic: TacticSummary) {
-    if (!window.confirm(`Delete "${tactic.title}"?`)) return;
-    try {
-      await api(`/api/tactics/${tactic.id}`, { method: "DELETE" });
-      setTactics((current) => current.filter((item) => item.id !== tactic.id));
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not delete the tactic");
-    }
+  async function toggleTacticGroup(tactic: TacticSummary, nextId: string) {
+    const currentIds = (tactic.groups ?? []).map((group) => group.id);
+    const groupIds = currentIds.includes(nextId)
+      ? currentIds.filter((id) => id !== nextId)
+      : [...currentIds, nextId].slice(0, 8);
+    await patchTactic.mutateAsync({ id: tactic.id, groupIds });
   }
 
   return (
-    <div className="mx-auto min-h-dvh max-w-6xl px-5 py-6">
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <Logo />
-        <div className="flex items-center gap-3 text-sm">
-          <span className="text-ink/70">{user?.email}</span>
-          <button
-            type="button"
-            className="rounded-full bg-white px-3 py-1.5 ring-1 ring-ink/15"
-            onClick={() => void logout()}
-          >
-            Log out
-          </button>
+    <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-5 overflow-auto px-4 py-5">
+      <div className="flex flex-wrap items-center gap-3">
+        <ChoiceToggle
+          value={format || "all"}
+          onChange={(next) => setFormat(next === "all" ? "" : next)}
+          options={formatFilters}
+          className="w-fit"
+          itemClassName="rounded-full flex-none"
+        />
+        <Input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search names"
+          aria-label="Search tactics"
+          className="min-w-48 flex-1 rounded-full"
+        />
+      </div>
+      {groupId && (
+        <p className="text-sm text-muted-foreground">
+          Showing {(groups.find((group) => group.id === groupId)?.name) ?? "group"}
+          {" "}
+          <Button type="button" variant="link" className="h-auto px-0" onClick={() => setSearchParams({})}>
+            Clear
+          </Button>
+        </p>
+      )}
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error instanceof Error ? error.message : "Could not load tactics"}</AlertDescription>
+        </Alert>
+      )}
+      {loading ? (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Skeleton className="h-40 rounded-3xl" />
+          <Skeleton className="h-40 rounded-3xl" />
         </div>
-      </header>
+      ) : null}
+      {!loading && visible.length === 0 ? (
+        <p className="max-w-md text-muted-foreground">
+          {query.trim() || format || groupId ? "No tactics match that search." : "Your library is empty. Create a tactic to start a rally."}
+        </p>
+      ) : null}
 
-      <div className="mt-8 grid gap-6 lg:grid-cols-[280px_1fr]">
-        <form onSubmit={onCreate} className="h-fit rounded-3xl bg-white p-5 ring-1 ring-ink/10">
-          <h1 className="font-display text-3xl">New tactic</h1>
-          <label className="mt-4 block text-sm">
-            Title
-            <input
-              value={title}
-              maxLength={80}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="Backhand smash rotation"
-              className="mt-2 w-full rounded-xl border border-ink/15 bg-paper px-3 py-2 outline-none"
-            />
-          </label>
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            {(["singles", "doubles"] as const).map((option) => (
-              <button
-                key={option}
-                type="button"
-                aria-pressed={createFormat === option}
-                onClick={() => setCreateFormat(option)}
-                className={`rounded-xl px-3 py-2 text-sm capitalize ${
-                  createFormat === option ? "bg-court text-line" : "bg-paper ring-1 ring-ink/10"
-                }`}
-              >
-                {option}
-              </button>
-            ))}
-          </div>
-          {createError && <p className="mt-3 text-sm text-far" role="alert">{createError}</p>}
-          <button
-            type="submit"
-            disabled={creating}
-            className="mt-4 w-full rounded-full bg-ink px-4 py-2.5 text-sm font-medium text-paper disabled:opacity-50"
-          >
-            {creating ? "Creating…" : "Create tactic"}
-          </button>
-        </form>
-
-        <section>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex gap-2">
-              {filters.map((filter) => (
-                <button
-                  key={filter.label}
-                  type="button"
-                  aria-pressed={format === filter.id}
-                  onClick={() => setFormat(filter.id)}
-                  className={`rounded-full px-3 py-1.5 text-sm ${
-                    format === filter.id ? "bg-ink text-paper" : "bg-white ring-1 ring-ink/10"
-                  }`}
-                >
-                  {filter.label}
-                </button>
-              ))}
-            </div>
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search titles"
-              aria-label="Search tactics"
-              className="min-w-48 flex-1 rounded-full border border-ink/15 bg-white px-4 py-2 text-sm outline-none"
-            />
-          </div>
-
-          {error && <p className="mt-4 text-sm text-far" role="alert">{error}</p>}
-          {loading && tactics.length === 0 ? <p className="mt-8 text-sm text-ink/60">Loading tactics…</p> : null}
-          {!loading && visible.length === 0 ? (
-            <p className="mt-8 max-w-md text-ink/70">
-              {query.trim() || format ? "No tactics match that search." : "Your library is empty. Create a tactic to start a rally."}
-            </p>
-          ) : null}
-
-          <ul className="mt-5 grid gap-4 sm:grid-cols-2">
-            {visible.map((tactic) => (
-              <li key={tactic.id} className="rounded-3xl bg-white p-5 ring-1 ring-ink/10">
-                <div className="flex items-start justify-between gap-3">
-                  <h2 className="font-display text-2xl leading-tight">
+      <ul className="grid gap-4 sm:grid-cols-2">
+        {visible.map((tactic) => (
+          <li key={tactic.id}>
+            <Card className="rounded-3xl py-5">
+              <CardHeader>
+                {editingId === tactic.id ? (
+                  <Input
+                    value={editTitle}
+                    maxLength={80}
+                    autoFocus
+                    aria-label="Tactic name"
+                    onChange={(event) => setEditTitle(event.target.value)}
+                    onBlur={() => void saveTitle(tactic)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") void saveTitle(tactic);
+                      if (event.key === "Escape") setEditingId(null);
+                    }}
+                    className="h-10 font-display text-2xl md:text-2xl"
+                  />
+                ) : (
+                  <CardTitle className="font-display text-2xl leading-tight">
                     <Link to={`/tactics/${tactic.id}`} className="hover:underline">{tactic.title}</Link>
-                  </h2>
-                  <span className="rounded-full bg-court/10 px-2 py-1 text-xs tracking-wide text-court uppercase">
-                    {tactic.format}
-                  </span>
-                </div>
-                <p className="mt-3 text-sm text-ink/70">
+                  </CardTitle>
+                )}
+                <CardAction>
+                  <Badge className="bg-court/10 text-court uppercase">{tactic.format}</Badge>
+                </CardAction>
+                <CardDescription>
                   {tactic.snapshotCount} {tactic.snapshotCount === 1 ? "rally" : "rallies"} · {formatWhen(tactic.updatedAt)}
-                </p>
-                {tactic.tags.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {tactic.tags.map((tag) => (
-                      <span key={tag} className="rounded-full bg-paper px-2 py-0.5 text-xs">{tag}</span>
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {(tactic.groups ?? []).length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {tactic.groups.map((group) => (
+                      <Badge key={group.id} variant="secondary">{group.name}</Badge>
                     ))}
                   </div>
                 )}
-                <div className="mt-4 flex gap-3 text-sm">
-                  <Link to={`/tactics/${tactic.id}`} className="font-medium underline">Open court</Link>
-                  <button type="button" className="text-far" onClick={() => void onDelete(tactic)}>
+                {tactic.tags.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {tactic.tags.map((tag) => (
+                      <Badge key={tag} variant="outline">{tag}</Badge>
+                    ))}
+                  </div>
+                )}
+                {groups.length > 0 && (
+                  <ToggleGroup
+                    type="multiple"
+                    value={(tactic.groups ?? []).map((group) => group.id)}
+                    onValueChange={(ids) => {
+                      const currentIds = (tactic.groups ?? []).map((group) => group.id);
+                      const added = ids.find((id) => !currentIds.includes(id));
+                      const removed = currentIds.find((id) => !ids.includes(id));
+                      const nextId = added ?? removed;
+                      if (nextId) void toggleTacticGroup(tactic, nextId);
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="mt-3 flex flex-wrap"
+                  >
+                    {groups.map((group) => (
+                      <ToggleGroupItem key={group.id} value={group.id} className="rounded-full">
+                        {group.name}
+                      </ToggleGroupItem>
+                    ))}
+                  </ToggleGroup>
+                )}
+              </CardContent>
+              <CardFooter className="gap-2 bg-transparent">
+                <Button variant="link" className="px-0" asChild>
+                  <Link to={`/tactics/${tactic.id}`}>Open court</Link>
+                </Button>
+                <Button
+                  type="button"
+                  variant="link"
+                  className="px-0"
+                  onClick={() => {
+                    setEditingId(tactic.id);
+                    setEditTitle(tactic.title);
+                  }}
+                >
+                  Rename
+                </Button>
+                <ConfirmAction
+                  title={`Delete ${tactic.title}?`}
+                  description="This rally sequence will be removed from your library."
+                  onConfirm={() => deleteTactic.mutate(tactic.id)}
+                >
+                  <Button type="button" variant="link" className="px-0 text-destructive">
                     Delete
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-      </div>
+                  </Button>
+                </ConfirmAction>
+              </CardFooter>
+            </Card>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

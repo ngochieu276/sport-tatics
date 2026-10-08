@@ -1,7 +1,12 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-@theme {
-  --font-display: "Fraunces", "Iowan Old Style", Georgia, serif;
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-heading: "Fraunces", "Iowan Old Style", Georgia, serif;
+  --font-display: var(--font-heading);
   --font-sans: "Outfit", "Avenir Next", "Segoe UI", sans-serif;
   --color-paper: #f3efe6;
   --color-ink: #172033;
@@ -12,28 +17,134 @@
   --color-shuttle: #e2a51a;
   --color-clay: #c4552a;
   --color-line: #e7f6ee;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-html,
-body,
-#root {
-  min-height: 100%;
+:root {
+  --background: #f3efe6;
+  --foreground: #172033;
+  --card: #ffffff;
+  --card-foreground: #172033;
+  --popover: #ffffff;
+  --popover-foreground: #172033;
+  --primary: #172033;
+  --primary-foreground: #f3efe6;
+  --secondary: #e7f6ee;
+  --secondary-foreground: #123c28;
+  --muted: #e8e2d4;
+  --muted-foreground: #4a5568;
+  --accent: #e8e2d4;
+  --accent-foreground: #172033;
+  --destructive: #9a3412;
+  --border: #17203326;
+  --input: #17203326;
+  --ring: #c4552a;
+  --chart-1: #1c7a4a;
+  --chart-2: #155e96;
+  --chart-3: #c4552a;
+  --chart-4: #e2a51a;
+  --chart-5: #9a3412;
+  --radius: 0.75rem;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #172033;
+  --sidebar-primary: #1c7a4a;
+  --sidebar-primary-foreground: #e7f6ee;
+  --sidebar-accent: #e8e2d4;
+  --sidebar-accent-foreground: #172033;
+  --sidebar-border: #17203326;
+  --sidebar-ring: #c4552a;
 }
 
-body {
-  margin: 0;
-  background: var(--color-paper);
-  color: var(--color-ink);
-  font-family: var(--font-sans);
+.dark {
+  --background: #123c28;
+  --foreground: #e7f6ee;
+  --card: #172033;
+  --card-foreground: #e7f6ee;
+  --popover: #172033;
+  --popover-foreground: #e7f6ee;
+  --primary: #e7f6ee;
+  --primary-foreground: #123c28;
+  --secondary: #1c7a4a;
+  --secondary-foreground: #e7f6ee;
+  --muted: #1c7a4a;
+  --muted-foreground: #e7f6eeb3;
+  --accent: #1c7a4a;
+  --accent-foreground: #e7f6ee;
+  --destructive: #f0b089;
+  --border: #e7f6ee26;
+  --input: #e7f6ee26;
+  --ring: #e2a51a;
+  --chart-1: #1c7a4a;
+  --chart-2: #8ec5ef;
+  --chart-3: #c4552a;
+  --chart-4: #e2a51a;
+  --chart-5: #f0b089;
+  --sidebar: #172033;
+  --sidebar-foreground: #e7f6ee;
+  --sidebar-primary: #1c7a4a;
+  --sidebar-primary-foreground: #e7f6ee;
+  --sidebar-accent: #1c7a4a;
+  --sidebar-accent-foreground: #e7f6ee;
+  --sidebar-border: #e7f6ee26;
+  --sidebar-ring: #e2a51a;
 }
 
-button,
-input,
-textarea {
-  font: inherit;
-}
-
-:focus-visible {
-  outline: 2px solid var(--color-clay);
-  outline-offset: 2px;
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+    margin: 0;
+  }
+  html {
+    @apply font-sans;
+  }
+  button,
+  input,
+  textarea {
+    font: inherit;
+  }
 }

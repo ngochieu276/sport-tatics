@@ -7,6 +7,10 @@ import {
   shotProfile,
   type Snapshot,
 } from "@/domain/badminton";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import { Slider } from "@/components/ui/slider";
 
 type FilmstripProps = {
   snapshots: Snapshot[];
@@ -46,60 +50,58 @@ export function Filmstrip({
     snapshots.length < 40;
 
   return (
-    <section className="flex shrink-0 flex-col gap-3 border-t border-ink/10 bg-white/70 px-4 py-3">
+    <section className="flex shrink-0 flex-col gap-3 border-t border-border bg-card/70 px-4 py-3">
       <div className="flex flex-wrap items-center gap-2">
         {playing ? (
-          <button type="button" className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-paper" onClick={onStop}>
-            Stop
-          </button>
+          <Button type="button" className="rounded-full" onClick={onStop}>Stop</Button>
         ) : (
           <>
-            <button type="button" className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-paper" onClick={onPlay}>
-              Play rally
-            </button>
-            <button type="button" className="rounded-full bg-white px-4 py-2 text-sm font-medium ring-1 ring-ink/15" onClick={onPlayPath}>
-              Play path
-            </button>
+            <Button type="button" className="rounded-full" onClick={onPlay}>Play rally</Button>
+            <Button type="button" variant="outline" className="rounded-full" onClick={onPlayPath}>Play path</Button>
           </>
         )}
-        <button
+        <Button
           type="button"
-          className="rounded-full bg-white px-3 py-2 text-sm text-far ring-1 ring-ink/15 disabled:opacity-40"
+          variant="destructive"
+          className="rounded-full"
           onClick={onDelete}
           disabled={playing || !current?.parentId}
         >
           Delete branch
-        </button>
-        <label className="ml-auto flex min-w-48 items-center gap-2 text-sm text-ink/70">
-          Duration
-          <input
-            type="range"
+        </Button>
+        <div className="ml-auto flex min-w-48 items-center gap-2 text-sm text-muted-foreground">
+          <label htmlFor="duration-scale">Duration</label>
+          <Slider
+            id="duration-scale"
             min={0.6}
             max={2.5}
             step={0.1}
-            value={durationScale}
+            value={[durationScale]}
             aria-label="Animation duration"
-            onChange={(event) => onDurationScale(Number(event.target.value))}
-            className="w-28 accent-court"
+            onValueChange={(values) => onDurationScale(values[0] ?? durationScale)}
+            className="w-28"
           />
           <span className="w-10 tabular-nums">{durationScale.toFixed(1)}×</span>
-        </label>
+        </div>
       </div>
-      <div className="max-h-64 overflow-auto pb-1">
-        {opening && (
-          <TreeNode
-            snapshot={opening}
-            snapshots={snapshots}
-            selectedId={current?.id ?? null}
-            playing={playing}
-            canFollow={canFollow}
-            canAddOption={canAddOption}
-            onSelect={onSelect}
-            onFollow={onFollow}
-            onAddOption={onAddOption}
-          />
-        )}
-      </div>
+      <ScrollArea className="max-h-64 w-full">
+        <div className="pb-1">
+          {opening && (
+            <TreeNode
+              snapshot={opening}
+              snapshots={snapshots}
+              selectedId={current?.id ?? null}
+              playing={playing}
+              canFollow={canFollow}
+              canAddOption={canAddOption}
+              onSelect={onSelect}
+              onFollow={onFollow}
+              onAddOption={onAddOption}
+            />
+          )}
+        </div>
+        <ScrollBar orientation="horizontal" />
+      </ScrollArea>
     </section>
   );
 }
@@ -139,28 +141,18 @@ function TreeNode({
         />
         {selected && (
           <div className="mt-2 flex w-28 flex-col gap-1">
-            <button
-              type="button"
-              disabled={playing || !canFollow}
-              onClick={onFollow}
-              className="rounded-full bg-ink px-2 py-1 text-xs font-medium text-paper disabled:opacity-40"
-            >
+            <Button type="button" size="xs" className="rounded-full" disabled={playing || !canFollow} onClick={onFollow}>
               Follow rally
-            </button>
-            <button
-              type="button"
-              disabled={playing || !canAddOption}
-              onClick={onAddOption}
-              className="rounded-full bg-white px-2 py-1 text-xs font-medium ring-1 ring-ink/15 disabled:opacity-40"
-            >
+            </Button>
+            <Button type="button" variant="outline" size="xs" className="rounded-full" disabled={playing || !canAddOption} onClick={onAddOption}>
               New option
-            </button>
+            </Button>
           </div>
         )}
         {follow && (
           <div className="mt-1 flex flex-col items-center">
-            <div className="h-5 w-px bg-ink/20" />
-            <span className="mb-1 text-[10px] tracking-wide text-ink/40 uppercase">Follow</span>
+            <div className="h-5 w-px bg-border" />
+            <span className="mb-1 text-[10px] tracking-wide text-muted-foreground uppercase">Follow</span>
             <TreeNode
               snapshot={follow}
               snapshots={snapshots}
@@ -176,10 +168,10 @@ function TreeNode({
         )}
       </div>
       {options.length > 0 && (
-        <div className="flex items-start gap-3 border-l border-dashed border-ink/15 pl-3">
+        <div className="flex items-start gap-3 border-l border-dashed border-border pl-3">
           {options.map((option) => (
             <div key={option.id} className="flex flex-col items-center">
-              <span className="mb-1 text-[10px] tracking-wide text-ink/40 uppercase">Option</span>
+              <span className="mb-1 text-[10px] tracking-wide text-muted-foreground uppercase">Option</span>
               <TreeNode
                 snapshot={option}
                 snapshots={snapshots}
@@ -211,27 +203,29 @@ function RallyCard({
   onSelect: (id: string) => void;
 }) {
   return (
-    <button
+    <Button
       type="button"
+      variant={active ? "default" : "outline"}
       aria-pressed={active}
       onClick={() => onSelect(snapshot.id)}
-      className={`flex w-28 shrink-0 flex-col items-center gap-1 rounded-2xl px-2 py-2 text-left ring-1 ${
-        active ? "bg-apron text-line ring-apron" : "bg-paper text-ink ring-ink/10"
-      }`}
+      className={cn(
+        "h-auto w-28 shrink-0 flex-col items-center gap-1 rounded-2xl px-2 py-2 text-left whitespace-normal",
+        active && "bg-apron text-line hover:bg-apron/90",
+      )}
     >
       <MiniCourt snapshot={snapshot} active={active} />
       <span className="text-sm font-medium">{rallyLabel(snapshots, snapshot)}</span>
-      <span className={`text-xs ${active ? "text-line/80" : "text-ink/60"}`}>
+      <span className={cn("text-xs", active ? "text-line/80" : "text-muted-foreground")}>
         {shotProfile(snapshot.shot.type).label}
       </span>
-    </button>
+    </Button>
   );
 }
 
 function MiniCourt({ snapshot, active }: { snapshot: Snapshot; active: boolean }) {
   const hitter = snapshot.players.find((player) => player.id === snapshot.shot.hitterId);
   return (
-    <svg viewBox="0 0 100 180" className="h-16 w-10" aria-hidden="true">
+    <svg viewBox="0 0 100 180" className="size-auto h-16 w-10" aria-hidden="true">
       <rect x="2" y="2" width="96" height="176" rx="3" fill={active ? "#1c7a4a" : "#1c7a4a"} />
       <line x1="2" y1="90" x2="98" y2="90" stroke="#e7f6ee" strokeWidth="2" />
       {(snapshot.coverAreas ?? []).map((area) => (

@@ -1,6 +1,10 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router";
 import { Logo } from "../components/Logo";
+import { FormError } from "../components/forms";
+import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { useAuth } from "../lib/auth";
 
 function AuthShell({ title, children }: { title: string; children: ReactNode }) {
@@ -27,8 +31,6 @@ function AuthShell({ title, children }: { title: string; children: ReactNode }) 
   );
 }
 
-const fieldClass = "mt-2 w-full rounded-xl border border-ink/15 bg-white px-3 py-2 outline-none";
-
 export function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -52,41 +54,42 @@ export function LoginPage() {
 
   return (
     <AuthShell title="Log in">
-      <form onSubmit={onSubmit} className="mt-8 space-y-4">
-        <label className="block text-sm">
-          Email
-          <input
-            type="email"
-            autoComplete="email"
-            required
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            className={fieldClass}
-          />
-        </label>
-        <label className="block text-sm">
-          Password
-          <input
-            type="password"
-            autoComplete="current-password"
-            required
-            minLength={8}
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            className={fieldClass}
-          />
-        </label>
-        {error && <p className="text-sm text-far" role="alert">{error}</p>}
-        <button
-          type="submit"
-          disabled={submitting}
-          className="w-full rounded-full bg-ink px-4 py-2.5 text-sm font-medium text-paper disabled:opacity-50"
-        >
-          {submitting ? "Logging in…" : "Log in"}
-        </button>
+      <form onSubmit={onSubmit} className="mt-8">
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="login-email">Email</FieldLabel>
+            <Input
+              id="login-email"
+              type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="login-password">Password</FieldLabel>
+            <Input
+              id="login-password"
+              type="password"
+              autoComplete="current-password"
+              required
+              minLength={8}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </Field>
+          <FormError>{error}</FormError>
+          <Button type="submit" className="w-full rounded-full" disabled={submitting}>
+            {submitting ? "Logging in…" : "Log in"}
+          </Button>
+        </FieldGroup>
       </form>
-      <p className="mt-6 text-sm text-ink/70">
-        New here? <Link to="/register" className="font-medium text-ink underline">Create an account</Link>
+      <p className="mt-6 text-sm text-muted-foreground">
+        New here?{" "}
+        <Button variant="link" className="h-auto p-0" asChild>
+          <Link to="/register">Create an account</Link>
+        </Button>
       </p>
     </AuthShell>
   );
@@ -115,42 +118,43 @@ export function RegisterPage() {
 
   return (
     <AuthShell title="Create an account">
-      <form onSubmit={onSubmit} className="mt-8 space-y-4">
-        <label className="block text-sm">
-          Email
-          <input
-            type="email"
-            autoComplete="email"
-            required
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            className={fieldClass}
-          />
-        </label>
-        <label className="block text-sm">
-          Password
-          <input
-            type="password"
-            autoComplete="new-password"
-            required
-            minLength={8}
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            className={fieldClass}
-          />
-        </label>
-        <p className="text-xs text-ink/60">Use at least 8 characters. Tactics stay private to this account.</p>
-        {error && <p className="text-sm text-far" role="alert">{error}</p>}
-        <button
-          type="submit"
-          disabled={submitting}
-          className="w-full rounded-full bg-court px-4 py-2.5 text-sm font-medium text-line disabled:opacity-50"
-        >
-          {submitting ? "Creating account…" : "Create account"}
-        </button>
+      <form onSubmit={onSubmit} className="mt-8">
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="register-email">Email</FieldLabel>
+            <Input
+              id="register-email"
+              type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="register-password">Password</FieldLabel>
+            <Input
+              id="register-password"
+              type="password"
+              autoComplete="new-password"
+              required
+              minLength={8}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+            <FieldDescription>Use at least 8 characters. Tactics stay private to this account.</FieldDescription>
+          </Field>
+          <FormError>{error}</FormError>
+          <Button type="submit" className="w-full rounded-full bg-court text-line hover:bg-court/90" disabled={submitting}>
+            {submitting ? "Creating account…" : "Create account"}
+          </Button>
+        </FieldGroup>
       </form>
-      <p className="mt-6 text-sm text-ink/70">
-        Already have an account? <Link to="/login" className="font-medium text-ink underline">Log in</Link>
+      <p className="mt-6 text-sm text-muted-foreground">
+        Already have an account?{" "}
+        <Button variant="link" className="h-auto p-0" asChild>
+          <Link to="/login">Log in</Link>
+        </Button>
       </p>
     </AuthShell>
   );

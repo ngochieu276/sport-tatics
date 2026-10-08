@@ -17,7 +17,11 @@ import {
   type ShotType,
   type Snapshot,
 } from "@/domain/badminton";
-import type { TacticDetail, TacticDraft } from "@/domain/types";
+import type { TacticDraft } from "@/domain/types";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { BadmintonCourt } from "../components/BadmintonCourt";
 import { CourtToolbox } from "../components/CourtToolbox";
 import { Filmstrip } from "../components/Filmstrip";
@@ -25,8 +29,9 @@ import { ShotRail } from "../components/ShotRail";
 import { useAutosave } from "../hooks/useAutosave";
 import { useRallyPlayback, type PlayMode } from "../hooks/usePlayback";
 import { usePrefersReducedMotion } from "../hooks/usePrefersReducedMotion";
-import { ApiError, api } from "../lib/api";
-import { StatusScreen } from "../lib/auth";
+import { useGroups } from "../hooks/use-groups";
+import { useTactic } from "../hooks/use-tactics";
+import { ApiError } from "../lib/api";
 
 const DURATION_SCALE_KEY = "sporttactic.durationScale";
 
@@ -44,6 +49,10 @@ export function EditorPage() {
 }
 
 function Editor({ id }: { id: string }) {
+  const tacticQuery = useTactic(id);
+  const groupsQuery = useGroups();
+  const tactic = tacticQuery.data;
+  const groups = groupsQuery.data ?? [];
   const [draft, setDraft] = useState<TacticDraft | null>(null);
   const [format, setFormat] = useState<Format>("singles");
   const [rallyId, setRallyId] = useState<string | null>(null);
@@ -52,8 +61,6 @@ function Editor({ id }: { id: string }) {
   const [selectedCoverId, setSelectedCoverId] = useState<string | null>(null);
   const [playMode, setPlayMode] = useState<PlayMode>("idle");
   const [durationScale, setDurationScale] = useState(readDurationScale);
-  const [missing, setMissing] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const reduced = usePrefersReducedMotion();
   const { status, error: saveError, retry } = useAutosave(id, draft);
   const playing = playMode !== "idle";
@@ -70,30 +77,19 @@ function Editor({ id }: { id: string }) {
   });
 
   useEffect(() => {
-    let active = true;
-    api<{ tactic: TacticDetail }>(`/api/tactics/${id}`)
-      .then(({ tactic }) => {
-        if (!active) return;
-        setFormat(tactic.format);
-        setDraft({
-          title: tactic.title,
-          notes: tactic.notes,
-          tags: tactic.tags,
-          snapshots: tactic.snapshots,
-        });
-        const opening = tactic.snapshots.find((item) => item.parentId === null) ?? tactic.snapshots[0];
-        setRallyId(opening?.id ?? null);
-        setSelectedId(opening?.shot.hitterId ?? null);
-      })
-      .catch((caught) => {
-        if (!active) return;
-        if (caught instanceof ApiError && caught.status === 404) setMissing(true);
-        else setLoadError(caught instanceof Error ? caught.message : "Could not load this tactic");
-      });
-    return () => {
-      active = false;
-    };
-  }, [id]);
+    if (!tactic || draft) return;
+    setFormat(tactic.format);
+    setDraft({
+      title: tactic.title,
+      notes: tactic.notes,
+      tags: tactic.tags,
+      snapshots: tactic.snapshots,
+      groupIds: tactic.groupIds ?? tactic.groups?.map((group) => group.id) ?? [],
+    });
+    const opening = tactic.snapshots.find((item) => item.parentId === null) ?? tactic.snapshots[0];
+    setRallyId(opening?.id ?? null);
+    setSelectedId(opening?.shot.hitterId ?? null);
+  }, [draft, tactic]);
 
   const snapshot = draft?.snapshots.find((item) => item.id === rallyId)
     ?? draft?.snapshots.find((item) => item.parentId === null)
@@ -144,18 +140,25 @@ function Editor({ id }: { id: string }) {
     if (parent) setSelectedId(parent.shot.hitterId);
   }
 
+  const missing = tacticQuery.isError && tacticQuery.error instanceof ApiError && tacticQuery.error.status === 404;
+  const loadError = tacticQuery.isError && !missing
+    ? (tacticQuery.error instanceof Error ? tacticQuery.error.message : "Could not load this tactic")
+    : null;
+
   if (missing) {
     return (
-      <StatusScreen>
+      <div className="grid flex-1 place-items-center text-sm text-muted-foreground">
         <div className="text-center">
           <p>That tactic is not in your library.</p>
-          <Link to="/tactics" className="mt-3 inline-block underline">Back to tactics</Link>
+          <Button variant="link" className="mt-3" asChild>
+            <Link to="/tactics">Back to tactics</Link>
+          </Button>
         </div>
-      </StatusScreen>
+      </div>
     );
   }
-  if (loadError) return <StatusScreen>{loadError}</StatusScreen>;
-  if (!draft || !snapshot) return <StatusScreen>Loading tactic…</StatusScreen>;
+  if (loadError) return <div className="grid flex-1 place-items-center text-sm text-muted-foreground">{loadError}</div>;
+  if (!draft || !snapshot) return <div className="grid flex-1 place-items-center text-sm text-muted-foreground">Loading tactic…</div>;
 
   const players = pose?.players ?? snapshot.players;
   const shuttle = playing && !reduced ? pose?.shuttle ?? null : null;
@@ -164,28 +167,32 @@ function Editor({ id }: { id: string }) {
   const stepLabel = rallyLabel(draft.snapshots, snapshot);
 
   return (
-    <div className="flex min-h-dvh w-full max-w-full flex-col overflow-x-hidden lg:h-dvh lg:overflow-hidden">
-      <header className="flex h-16 w-full shrink-0 items-center gap-3 border-b border-ink/10 px-4">
-        <Link to="/tactics" className="text-sm text-ink/70 underline">Tactics</Link>
-        <input
-          aria-label="Tactic title"
+    <div className="flex min-h-0 w-full max-w-full flex-1 flex-col overflow-x-hidden lg:overflow-hidden">
+      <header className="flex h-14 w-full shrink-0 items-center gap-3 border-b border-border px-4">
+        <Input
+          aria-label="Tactic name"
           value={draft.title}
           maxLength={80}
           onChange={(event) => setDraft({ ...draft, title: event.target.value })}
-          className="min-w-0 flex-1 bg-transparent font-display text-2xl outline-none"
+          placeholder="Tactic name"
+          className="h-10 min-w-0 flex-1 bg-card font-display text-2xl md:text-2xl"
         />
-        <span className="rounded-full bg-court/10 px-2 py-1 text-xs tracking-wide text-court uppercase">{format}</span>
-        <p className="hidden text-sm text-ink/60 sm:block" role="status">
+        <Badge className="bg-court/10 text-court uppercase">{format}</Badge>
+        <p className="hidden text-sm text-muted-foreground sm:block" role="status">
           {titleMissing ? "Add a title to save" : status === "saving" ? "Saving…" : status === "error" ? "Not saved" : "Saved"}
         </p>
         {status === "error" && (
-          <button type="button" className="text-sm underline" onClick={retry}>Retry</button>
+          <Button type="button" variant="link" className="px-0" onClick={retry}>Retry</Button>
         )}
       </header>
-      {saveError && <p className="bg-far/10 px-4 py-2 text-sm text-far" role="alert">{saveError}</p>}
+      {saveError && (
+        <Alert variant="destructive" className="rounded-none border-x-0">
+          <AlertDescription>{saveError}</AlertDescription>
+        </Alert>
+      )}
       <div className="grid min-h-0 w-full flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <div className="flex min-h-[520px] min-w-0 flex-1 flex-col items-center px-4 py-3 lg:min-h-0">
-          <p className="mb-2 text-sm text-ink/70" aria-live="polite">
+        <div className="flex min-h-130 min-w-0 flex-1 flex-col items-center px-4 py-3 lg:min-h-0">
+          <p className="mb-2 text-sm text-muted-foreground" aria-live="polite">
             {stepLabel} · {shotLabel}
             {playing ? " · playing" : ""}
           </p>
@@ -255,7 +262,7 @@ function Editor({ id }: { id: string }) {
               }}
             />
           </div>
-          <p className="mt-2 text-center text-xs text-ink/50">
+          <p className="mt-2 text-center text-xs text-muted-foreground">
             Use Tools to add a cover area, then drag it into shape. Click × or Delete cover area to remove it.
           </p>
         </div>
@@ -284,6 +291,9 @@ function Editor({ id }: { id: string }) {
           }}
           onNotes={(notes) => setDraft({ ...draft, notes })}
           onTags={(tags) => setDraft({ ...draft, tags })}
+          groups={groups}
+          groupIds={draft.groupIds ?? []}
+          onGroupIds={(groupIds) => setDraft({ ...draft, groupIds })}
         />
       </div>
       <Filmstrip

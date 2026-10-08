@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { Navigate, Outlet } from "react-router";
 import type { UserProfile } from "@/domain/types";
 import { api, setToken, setUnauthorizedHandler } from "./api";
+import { queryClient } from "./query";
 
 type AuthValue = {
   user: UserProfile | null;
@@ -18,7 +19,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setUnauthorizedHandler(() => setUser(null));
+    setUnauthorizedHandler(() => {
+      setUser(null);
+      queryClient.clear();
+    });
     let active = true;
     api<{ user: UserProfile }>("/api/auth/me")
       .then((result) => {
@@ -58,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await api("/api/auth/logout", { method: "POST" });
       setToken(null);
       setUser(null);
+      queryClient.clear();
     },
   }), [loading, user]);
 
@@ -86,7 +91,7 @@ export function GuestOnly() {
 
 export function StatusScreen({ children }: { children: ReactNode }) {
   return (
-    <div className="grid min-h-dvh place-items-center text-sm text-ink/70">
+    <div className="grid min-h-dvh place-items-center text-sm text-muted-foreground">
       {children}
     </div>
   );

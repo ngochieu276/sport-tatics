@@ -13,13 +13,50 @@ import {
   tacticCreateSchema,
   tacticPatchSchema,
   tacticQuerySchema,
+  type GroupSummary,
   type TacticDetail,
   type TacticSummary,
 } from "./domain/schemas.js";
 import type { AppEnv } from "./app-env.js";
+import { ownedGroupIds } from "./groups.js";
 
 function asTags(value: Prisma.JsonValue): string[] {
   return Array.isArray(value) ? value.filter((tag): tag is string => typeof tag === "string") : [];
+}
+
+function asGroups(rows: Array<{ group: { id: string; name: string; updatedAt: Date; _count: { tactics: number } } }>): GroupSummary[] {
+  return rows.map((row) => ({
+    id: row.group.id,
+    name: row.group.name,
+    tacticCount: row.group._count.tactics,
+    updatedAt: row.group.updatedAt.toISOString(),
+  }));
+}
+
+const groupInclude = {
+  groups: {
+    include: {
+      group: { include: { _count: { select: { tactics: true } } } },
+    },
+  },
+} as const;
+
+async function setTacticGroups(
+  db: PrismaClient,
+  userId: string,
+  tacticId: string,
+  groupIds: string[] | undefined,
+): Promise<string | null> {
+  if (!groupIds) return null;
+  const owned = await ownedGroupIds(db, userId, groupIds);
+  if (!owned) return "Those groups are not in your library";
+  await db.tacticGroup.deleteMany({ where: { tacticId } });
+  if (owned.length > 0) {
+    await db.tacticGroup.createMany({
+      data: owned.map((groupId) => ({ tacticId, groupId })),
+    });
+  }
+  return null;
 }
 
 function asBounds(raw: Record<string, unknown>): Omit<CoverArea, "id"> | null {
@@ -111,10 +148,11 @@ function snapshotListError(format: Format, snapshots: Snapshot[]): string | null
 async function loadOwned(db: PrismaClient, userId: string, tacticId: string): Promise<TacticDetail | null> {
   const row = await db.tactic.findFirst({
     where: { id: tacticId, userId },
-    include: { snapshots: { orderBy: { position: "asc" } } },
+    include: { snapshots: { orderBy: { position: "asc" } }, ...groupInclude },
   });
   if (!row || (row.format !== "singles" && row.format !== "doubles")) return null;
   const format = row.format;
+  const groups = asGroups(row.groups);
   return {
     id: row.id,
     sport: "badminton",
@@ -123,6 +161,8 @@ async function loadOwned(db: PrismaClient, userId: string, tacticId: string): Pr
     notes: row.notes,
     tags: asTags(row.tags),
     snapshots: row.snapshots.map((snapshot) => asSnapshot(snapshot, format)),
+    groupIds: groups.map((group) => group.id),
+    groups,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -133,35 +173,33 @@ export async function listTactics(db: PrismaClient, c: Context<AppEnv>) {
   const parsed = tacticQuerySchema.safeParse({
     format: c.req.query("format") ?? "",
     q: c.req.query("q") ?? "",
+    groupId: c.req.query("groupId") ?? "",
   });
   if (!parsed.success) {
     return c.json({ error: parsed.error.issues[0]?.message ?? "Invalid search" }, 400);
   }
   const format = parsed.data.format || undefined;
   const needle = (parsed.data.q ?? "").trim();
+  const groupId = parsed.data.groupId || undefined;
   const rows = await db.tactic.findMany({
     where: {
       userId: user.id,
       ...(format ? { format } : {}),
       ...(needle ? { title: { contains: needle, mode: "insensitive" } } : {}),
+      ...(groupId ? { groups: { some: { groupId } } } : {}),
     },
-    select: {
-      id: true,
-      format: true,
-      title: true,
-      tags: true,
-      snapshotCount: true,
-      updatedAt: true,
-    },
+    include: groupInclude,
     orderBy: { updatedAt: "desc" },
   });
   const tactics: TacticSummary[] = rows.flatMap((row) => {
     if (row.format !== "singles" && row.format !== "doubles") return [];
+    const groups = asGroups(row.groups);
     return [{
       id: row.id,
       format: row.format,
       title: row.title,
       tags: asTags(row.tags),
+      groups,
       snapshotCount: row.snapshotCount,
       updatedAt: row.updatedAt.toISOString(),
     }];
@@ -175,6 +213,8 @@ export async function createTactic(db: PrismaClient, c: Context<AppEnv>) {
   if (!parsed.success) {
     return c.json({ error: parsed.error.issues[0]?.message ?? "Invalid tactic" }, 400);
   }
+  const owned = await ownedGroupIds(db, user.id, parsed.data.groupIds ?? []);
+  if (!owned) return c.json({ error: "Those groups are not in your library" }, 400);
   const id = crypto.randomUUID();
   const now = new Date();
   const notes = parsed.data.notes?.trim() ?? "";
@@ -204,17 +244,10 @@ export async function createTactic(db: PrismaClient, c: Context<AppEnv>) {
       },
     },
   });
-  const tactic: TacticDetail = {
-    id,
-    sport: "badminton",
-    format: parsed.data.format,
-    title: parsed.data.title,
-    notes,
-    tags,
-    snapshots: [snapshot],
-    createdAt: now.toISOString(),
-    updatedAt: now.toISOString(),
-  };
+  const groupError = await setTacticGroups(db, user.id, id, owned);
+  if (groupError) return c.json({ error: groupError }, 400);
+  const tactic = await loadOwned(db, user.id, id);
+  if (!tactic) return c.json({ error: "Could not create the tactic" }, 500);
   return c.json({ tactic }, 201);
 }
 
@@ -239,65 +272,58 @@ export async function patchTactic(db: PrismaClient, c: Context<AppEnv>) {
   if (!parsed.success) {
     return c.json({ error: parsed.error.issues[0]?.message ?? "Invalid tactic" }, 400);
   }
-  const tags = normalizeTags(parsed.data.tags);
-  const notes = parsed.data.notes.trim();
   const now = new Date();
   const snapshots = parsed.data.snapshots;
-
-  if (!snapshots) {
-    const updated = await db.tactic.updateMany({
-      where: { id: tacticId, userId: user.id },
-      data: { title: parsed.data.title, notes, tags: json(tags), updatedAt: now },
-    });
-    if (updated.count === 0) return c.json({ error: "Not found" }, 404);
-    return c.json({ updatedAt: now.toISOString() });
-  }
-
   const existing = await db.tactic.findFirst({
     where: { id: tacticId, userId: user.id },
-    select: { format: true, createdAt: true },
+    select: { format: true },
   });
   if (!existing || (existing.format !== "singles" && existing.format !== "doubles")) {
     return c.json({ error: "Not found" }, 404);
   }
-  const message = snapshotListError(existing.format, snapshots);
-  if (message) return c.json({ error: message }, 400);
+  if (snapshots) {
+    const message = snapshotListError(existing.format, snapshots);
+    if (message) return c.json({ error: message }, 400);
+  }
+  const groupError = parsed.data.groupIds ? await ownedGroupIds(db, user.id, parsed.data.groupIds) : [];
+  if (groupError === null) return c.json({ error: "Those groups are not in your library" }, 400);
   await db.$transaction(async (tx) => {
     await tx.tactic.update({
       where: { id: tacticId },
       data: {
-        title: parsed.data.title,
-        notes,
-        tags: json(tags),
-        snapshotCount: snapshots.length,
+        ...(parsed.data.title !== undefined ? { title: parsed.data.title } : {}),
+        ...(parsed.data.notes !== undefined ? { notes: parsed.data.notes.trim() } : {}),
+        ...(parsed.data.tags !== undefined ? { tags: json(normalizeTags(parsed.data.tags)) } : {}),
+        ...(snapshots ? { snapshotCount: snapshots.length } : {}),
         updatedAt: now,
       },
     });
-    await tx.snapshot.deleteMany({ where: { tacticId } });
-    await tx.snapshot.createMany({
-      data: snapshots.map((snapshot, position) => ({
-        id: snapshot.id,
-        tacticId,
-        position,
-        parentId: snapshot.parentId,
-        branchKind: snapshot.kind,
-        players: json(snapshot.players),
-        shot: json(snapshot.shot),
-        coverArea: json(snapshot.coverAreas),
-      })),
-    });
+    if (snapshots) {
+      await tx.snapshot.deleteMany({ where: { tacticId } });
+      await tx.snapshot.createMany({
+        data: snapshots.map((snapshot, position) => ({
+          id: snapshot.id,
+          tacticId,
+          position,
+          parentId: snapshot.parentId,
+          branchKind: snapshot.kind,
+          players: json(snapshot.players),
+          shot: json(snapshot.shot),
+          coverArea: json(snapshot.coverAreas),
+        })),
+      });
+    }
+    if (parsed.data.groupIds) {
+      await tx.tacticGroup.deleteMany({ where: { tacticId } });
+      if (parsed.data.groupIds.length > 0) {
+        await tx.tacticGroup.createMany({
+          data: parsed.data.groupIds.map((groupId) => ({ tacticId, groupId })),
+        });
+      }
+    }
   });
-  const tactic: TacticDetail = {
-    id: tacticId,
-    sport: "badminton",
-    format: existing.format,
-    title: parsed.data.title,
-    notes,
-    tags,
-    snapshots,
-    createdAt: existing.createdAt.toISOString(),
-    updatedAt: now.toISOString(),
-  };
+  const tactic = await loadOwned(db, user.id, tacticId);
+  if (!tactic) return c.json({ error: "Not found" }, 404);
   return c.json({ tactic });
 }
 

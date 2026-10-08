@@ -14,6 +14,7 @@ model User {
   createdAt    DateTime  @map("created_at")
   sessions     Session[]
   tactics      Tactic[]
+  groups       Group[]
 
   @@map("users")
 }
@@ -42,9 +43,33 @@ model Tactic {
   updatedAt     DateTime   @map("updated_at")
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   snapshots Snapshot[]
+  groups    TacticGroup[]
 
   @@index([userId, updatedAt(sort: Desc)])
   @@map("tactics")
+}
+
+model Group {
+  id        String        @id
+  userId    String        @map("user_id")
+  name      String
+  createdAt DateTime      @map("created_at")
+  updatedAt DateTime      @map("updated_at")
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tactics   TacticGroup[]
+
+  @@index([userId, name])
+  @@map("groups")
+}
+
+model TacticGroup {
+  tacticId String @map("tactic_id")
+  groupId  String @map("group_id")
+  tactic   Tactic @relation(fields: [tacticId], references: [id], onDelete: Cascade)
+  group    Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([tacticId, groupId])
+  @@map("tactic_groups")
 }
 
 model Snapshot {

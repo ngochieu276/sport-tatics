@@ -176,3 +176,48 @@ test("tactics stay private to the user who created them", async () => {
   const gone = await app.request(`/api/tactics/${tactic.id}`, { headers: { cookie: ada.cookie } });
   assert.equal(gone.status, 404);
 });
+
+test("tactics can be renamed and placed in more than one group", async () => {
+  const app = createApp(prisma);
+  const ada = await register(app, testEmail("groups"));
+  const serve = await app.request("/api/groups", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: ada.cookie },
+    body: JSON.stringify({ name: "Serve" }),
+  });
+  const smash = await app.request("/api/groups", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: ada.cookie },
+    body: JSON.stringify({ name: "Smash" }),
+  });
+  assert.equal(serve.status, 201);
+  assert.equal(smash.status, 201);
+  const serveId = (await serve.json()).group.id;
+  const smashId = (await smash.json()).group.id;
+
+  const created = await app.request("/api/tactics", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: ada.cookie },
+    body: JSON.stringify({ title: "First name", format: "singles", groupIds: [serveId] }),
+  });
+  assert.equal(created.status, 201);
+  const tactic = (await created.json()).tactic;
+  assert.deepEqual(tactic.groups.map((group: { name: string }) => group.name), ["Serve"]);
+
+  const renamed = await app.request(`/api/tactics/${tactic.id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie: ada.cookie },
+    body: JSON.stringify({ title: "Second name" }),
+  });
+  assert.equal(renamed.status, 200);
+  assert.equal((await renamed.json()).tactic.title, "Second name");
+
+  const grouped = await app.request(`/api/tactics/${tactic.id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie: ada.cookie },
+    body: JSON.stringify({ groupIds: [serveId, smashId] }),
+  });
+  assert.equal(grouped.status, 200);
+  const names = (await grouped.json()).tactic.groups.map((group: { name: string }) => group.name).sort();
+  assert.deepEqual(names, ["Serve", "Smash"]);
+});

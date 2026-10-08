@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import type { TacticDraft } from "@/domain/types";
+import type { TacticDetail, TacticDraft } from "@/domain/types";
 import { ApiError, api, apiUrl, getToken } from "../lib/api";
+import { cacheTactic } from "../lib/query";
 
 export function useAutosave(id: string, draft: TacticDraft | null) {
   const [status, setStatus] = useState<"saved" | "saving" | "error">("saved");
@@ -37,7 +38,8 @@ export function useAutosave(id: string, draft: TacticDraft | null) {
           setStatus("saving");
           setError(null);
         }
-        await api(`/api/tactics/${idRef.current}`, { method: "PATCH", body });
+        const result = await api<{ tactic: TacticDetail }>(`/api/tactics/${idRef.current}`, { method: "PATCH", body });
+        cacheTactic(result.tactic);
         const sent = JSON.parse(body) as TacticDraft;
         if (sent.snapshots) savedSnapshots.current = JSON.stringify(sent.snapshots);
         saved.current = body;
@@ -62,7 +64,12 @@ export function useAutosave(id: string, draft: TacticDraft | null) {
     if (seenId.current !== id) {
       seenId.current = id;
       savedSnapshots.current = snapshots;
-      const body = JSON.stringify({ title: draft.title, notes: draft.notes, tags: draft.tags });
+      const body = JSON.stringify({
+        title: draft.title,
+        notes: draft.notes,
+        tags: draft.tags,
+        groupIds: draft.groupIds ?? [],
+      });
       saved.current = body;
       latest.current = body;
       return;
@@ -71,6 +78,7 @@ export function useAutosave(id: string, draft: TacticDraft | null) {
       title: draft.title,
       notes: draft.notes,
       tags: draft.tags,
+      groupIds: draft.groupIds ?? [],
       ...(snapshots === savedSnapshots.current ? {} : { snapshots: draft.snapshots }),
     });
     latest.current = body;

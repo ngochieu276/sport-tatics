@@ -9,6 +9,15 @@ import {
   type ShotType,
   type Snapshot,
 } from "@/domain/badminton";
+import type { GroupSummary } from "@/domain/types";
+import { CreateGroupDialog } from "@/components/create-group-dialog";
+import { ChoiceToggle, GroupChecklist, SectionHeading } from "./forms";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 type ShotRailProps = {
   format: Format;
@@ -16,10 +25,13 @@ type ShotRailProps = {
   disabled: boolean;
   notes: string;
   tags: string[];
+  groups: GroupSummary[];
+  groupIds: string[];
   onHitter: (id: PlayerSlot) => void;
   onType: (type: ShotType) => void;
   onNotes: (notes: string) => void;
   onTags: (tags: string[]) => void;
+  onGroupIds: (ids: string[]) => void;
 };
 
 export function ShotRail({
@@ -28,10 +40,13 @@ export function ShotRail({
   disabled,
   notes,
   tags,
+  groups,
+  groupIds,
   onHitter,
   onType,
   onNotes,
   onTags,
+  onGroupIds,
 }: ShotRailProps) {
   const [tagDraft, setTagDraft] = useState("");
 
@@ -48,99 +63,108 @@ export function ShotRail({
   }
 
   return (
-    <aside className="flex min-h-0 w-full flex-col gap-5 border-t border-ink/10 bg-white/80 p-4 lg:overflow-y-auto lg:border-t-0 lg:border-l">
+    <aside className="flex min-h-0 w-full flex-col gap-5 border-t border-border bg-card/80 p-4 lg:overflow-y-auto lg:border-t-0 lg:border-l">
       <div>
-        <h2 className="text-xs font-semibold tracking-[0.16em] text-ink/50 uppercase">Who hits</h2>
-        <div className="mt-2 grid grid-cols-2 gap-2">
-          {slotsFor(format).map((slot) => {
-            const active = snapshot.shot.hitterId === slot;
-            return (
-              <button
-                key={slot}
-                type="button"
-                aria-pressed={active}
-                disabled={disabled}
-                onClick={() => onHitter(slot)}
-                className={`rounded-xl px-2 py-2 text-sm ${
-                  active ? "bg-ink text-paper" : "bg-paper text-ink ring-1 ring-ink/10"
-                } disabled:opacity-50`}
-              >
-                {SLOT_LABELS[slot].full}
-              </button>
-            );
-          })}
-        </div>
+        <SectionHeading>Who hits</SectionHeading>
+        <ChoiceToggle
+          value={snapshot.shot.hitterId}
+          onChange={onHitter}
+          disabled={disabled}
+          className="mt-2 grid grid-cols-2"
+          options={slotsFor(format).map((slot) => ({
+            value: slot,
+            label: SLOT_LABELS[slot].full,
+          }))}
+        />
       </div>
       <div>
-        <h2 className="text-xs font-semibold tracking-[0.16em] text-ink/50 uppercase">Shot</h2>
-        <div className="mt-2 space-y-3">
+        <SectionHeading>Shot</SectionHeading>
+        <ToggleGroup
+          type="single"
+          value={snapshot.shot.type}
+          onValueChange={(next) => {
+            if (next) onType(next as ShotType);
+          }}
+          variant="outline"
+          size="sm"
+          disabled={disabled}
+          className="mt-2 flex w-full flex-col items-stretch gap-3"
+        >
           {SHOT_GROUPS.map((group) => (
             <div key={group.label}>
-              <p className="mb-1 text-xs text-ink/50">{group.label}</p>
+              <p className="mb-1 text-xs text-muted-foreground">{group.label}</p>
               <div className="grid grid-cols-2 gap-2">
-                {group.types.map((type) => {
-                  const active = snapshot.shot.type === type;
-                  return (
-                    <button
-                      key={type}
-                      type="button"
-                      aria-pressed={active}
-                      disabled={disabled}
-                      onClick={() => onType(type)}
-                      className={`rounded-xl px-2 py-2 text-sm ${
-                        active ? "bg-court text-line" : "bg-paper text-ink ring-1 ring-ink/10"
-                      } disabled:opacity-50`}
-                    >
-                      {shotProfile(type).label}
-                    </button>
-                  );
-                })}
+                {group.types.map((type) => (
+                  <ToggleGroupItem key={type} value={type} className="w-full">
+                    {shotProfile(type).label}
+                  </ToggleGroupItem>
+                ))}
               </div>
             </div>
           ))}
-        </div>
+        </ToggleGroup>
       </div>
-      <label className="block">
-        <span className="text-xs font-semibold tracking-[0.16em] text-ink/50 uppercase">Notes</span>
-        <textarea
+      <Field>
+        <SectionHeading>Notes</SectionHeading>
+        <Textarea
+          id="tactic-notes"
           value={notes}
           maxLength={2000}
           disabled={disabled}
           onChange={(event) => onNotes(event.target.value)}
           placeholder="When to use this pattern"
-          className="mt-2 min-h-24 w-full rounded-xl border border-ink/10 bg-paper px-3 py-2 text-sm outline-none"
+          className="min-h-24"
         />
-      </label>
+      </Field>
       <div>
-        <h2 className="text-xs font-semibold tracking-[0.16em] text-ink/50 uppercase">Tags</h2>
+        <SectionHeading>Tags</SectionHeading>
         <div className="mt-2 flex flex-wrap gap-2">
           {tags.map((tag) => (
-            <button
-              key={tag}
-              type="button"
-              disabled={disabled}
-              onClick={() => onTags(tags.filter((item) => item !== tag))}
-              className="rounded-full bg-paper px-2 py-1 text-xs ring-1 ring-ink/10"
-            >
-              {tag} <span aria-hidden="true">×</span>
-              <span className="sr-only">Remove {tag}</span>
-            </button>
+            <Badge key={tag} variant="secondary" asChild>
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => onTags(tags.filter((item) => item !== tag))}
+              >
+                {tag} <span aria-hidden="true">×</span>
+                <span className="sr-only">Remove {tag}</span>
+              </button>
+            </Badge>
           ))}
         </div>
         <form onSubmit={addTag} className="mt-2 flex gap-2">
-          <input
+          <Input
             value={tagDraft}
             maxLength={24}
             disabled={disabled || tags.length >= 8}
             onChange={(event) => setTagDraft(event.target.value)}
             placeholder="Add a tag"
             aria-label="Add a tag"
-            className="w-full rounded-xl border border-ink/10 bg-paper px-3 py-2 text-sm outline-none"
           />
-          <button type="submit" disabled={disabled || tags.length >= 8} className="rounded-xl bg-ink px-3 py-2 text-sm text-paper disabled:opacity-40">
-            Add
-          </button>
+          <Button type="submit" disabled={disabled || tags.length >= 8}>Add</Button>
         </form>
+      </div>
+      <div>
+        <SectionHeading>Groups</SectionHeading>
+        <div className="mt-2">
+          <GroupChecklist
+            groups={groups}
+            selectedIds={groupIds}
+            onChange={onGroupIds}
+            disabled={disabled}
+            idPrefix="shot-rail-group"
+          />
+        </div>
+        <div className="mt-2">
+          <CreateGroupDialog
+            disabled={disabled || groupIds.length >= 8}
+            onCreated={(group) => {
+              if (groupIds.includes(group.id) || groupIds.length >= 8) return;
+              onGroupIds([...groupIds, group.id]);
+            }}
+            trigger={<Button type="button" variant="outline" size="sm" disabled={disabled || groupIds.length >= 8}>New group</Button>}
+          />
+        </div>
       </div>
     </aside>
   );

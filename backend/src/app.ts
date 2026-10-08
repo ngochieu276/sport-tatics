@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { PrismaClient } from "@prisma/client";
 import type { AppEnv } from "./app-env.js";
 import { findUser, login, logout, me, register } from "./auth.js";
+import { createGroup, listGroups, patchGroup, removeGroup } from "./groups.js";
 import { createTactic, listTactics, patchTactic, readTactic, removeTactic } from "./tactics.js";
 
 const BUILTIN_ORIGINS = [
@@ -76,12 +77,29 @@ export function createApp(db: PrismaClient) {
     c.set("user", user);
     await next();
   });
+  app.use("/api/groups", async (c, next) => {
+    const user = await findUser(db, c);
+    if (!user) return c.json({ error: "Unauthorized" }, 401);
+    c.set("user", user);
+    await next();
+  });
+  app.use("/api/groups/*", async (c, next) => {
+    const user = await findUser(db, c);
+    if (!user) return c.json({ error: "Unauthorized" }, 401);
+    c.set("user", user);
+    await next();
+  });
 
   app.get("/api/tactics", (c) => listTactics(db, c));
   app.post("/api/tactics", (c) => createTactic(db, c));
   app.get("/api/tactics/:id", (c) => readTactic(db, c));
   app.patch("/api/tactics/:id", (c) => patchTactic(db, c));
   app.delete("/api/tactics/:id", (c) => removeTactic(db, c));
+
+  app.get("/api/groups", (c) => listGroups(db, c));
+  app.post("/api/groups", (c) => createGroup(db, c));
+  app.patch("/api/groups/:id", (c) => patchGroup(db, c));
+  app.delete("/api/groups/:id", (c) => removeGroup(db, c));
 
   app.notFound((c) => {
     if (c.req.path.startsWith("/api")) return c.json({ error: "Not found" }, 404);

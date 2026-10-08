@@ -1,4 +1,6 @@
 import { MAX_COVER_AREAS } from "@/domain/badminton";
+import { Button } from "@/components/ui/button";
+import { SectionHeading } from "./forms";
 
 type CourtToolboxProps = {
   disabled: boolean;
@@ -17,23 +19,13 @@ export function CourtToolbox({
 }: CourtToolboxProps) {
   return (
     <div className="mb-2 flex flex-wrap items-center gap-2" role="toolbar" aria-label="Court tools">
-      <span className="text-xs font-semibold tracking-[0.16em] text-ink/50 uppercase">Tools</span>
-      <button
-        type="button"
-        disabled={disabled || coverCount >= MAX_COVER_AREAS}
-        onClick={onAddCoverArea}
-        className="rounded-full bg-white px-3 py-1.5 text-sm ring-1 ring-ink/15 disabled:opacity-40"
-      >
+      <SectionHeading>Tools</SectionHeading>
+      <Button type="button" variant="outline" size="sm" className="rounded-full" disabled={disabled || coverCount >= MAX_COVER_AREAS} onClick={onAddCoverArea}>
         Add cover area
-      </button>
-      <button
-        type="button"
-        disabled={disabled || !selectedCoverId}
-        onClick={onDeleteCoverArea}
-        className="rounded-full bg-white px-3 py-1.5 text-sm text-far ring-1 ring-ink/15 disabled:opacity-40"
-      >
+      </Button>
+      <Button type="button" variant="destructive" size="sm" className="rounded-full" disabled={disabled || !selectedCoverId} onClick={onDeleteCoverArea}>
         Delete cover area
-      </button>
+      </Button>
     </div>
   );
 }
