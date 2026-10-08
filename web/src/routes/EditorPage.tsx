@@ -3,6 +3,14 @@ import { Link, Navigate, useParams } from "react-router";
 import {
   clampTarget,
   copySnapshot,
+  createCoverArea,
+  descendantIds,
+  followChild,
+  MAX_COVER_AREAS,
+  MAX_OPTIONS,
+  optionChildren,
+  rallyLabel,
+  pathTo,
   shotProfile,
   type Format,
   type PlayerSlot,
@@ -11,6 +19,7 @@ import {
 } from "@/domain/badminton";
 import type { TacticDetail, TacticDraft } from "@/domain/types";
 import { BadmintonCourt } from "../components/BadmintonCourt";
+import { CourtToolbox } from "../components/CourtToolbox";
 import { Filmstrip } from "../components/Filmstrip";
 import { ShotRail } from "../components/ShotRail";
 import { useAutosave } from "../hooks/useAutosave";
@@ -37,8 +46,10 @@ export function EditorPage() {
 function Editor({ id }: { id: string }) {
   const [draft, setDraft] = useState<TacticDraft | null>(null);
   const [format, setFormat] = useState<Format>("singles");
-  const [index, setIndex] = useState(0);
+  const [rallyId, setRallyId] = useState<string | null>(null);
+  const [pathEndId, setPathEndId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<PlayerSlot | null>(null);
+  const [selectedCoverId, setSelectedCoverId] = useState<string | null>(null);
   const [playMode, setPlayMode] = useState<PlayMode>("idle");
   const [durationScale, setDurationScale] = useState(readDurationScale);
   const [missing, setMissing] = useState(false);
@@ -49,12 +60,12 @@ function Editor({ id }: { id: string }) {
   const pose = useRallyPlayback({
     playing,
     mode: playMode,
-    format,
     snapshots: draft?.snapshots ?? [],
-    index,
+    rallyId: rallyId ?? "",
+    pathEndId,
     reduced,
     durationScale,
-    onAdvance: setIndex,
+    onAdvance: setRallyId,
     onStop: () => setPlayMode("idle"),
   });
 
@@ -70,8 +81,9 @@ function Editor({ id }: { id: string }) {
           tags: tactic.tags,
           snapshots: tactic.snapshots,
         });
-        setSelectedId(tactic.snapshots[0]?.shot.hitterId ?? null);
-        setIndex(0);
+        const opening = tactic.snapshots.find((item) => item.parentId === null) ?? tactic.snapshots[0];
+        setRallyId(opening?.id ?? null);
+        setSelectedId(opening?.shot.hitterId ?? null);
       })
       .catch((caught) => {
         if (!active) return;
@@ -83,48 +95,53 @@ function Editor({ id }: { id: string }) {
     };
   }, [id]);
 
-  const snapshot = draft?.snapshots[index];
+  const snapshot = draft?.snapshots.find((item) => item.id === rallyId)
+    ?? draft?.snapshots.find((item) => item.parentId === null)
+    ?? draft?.snapshots[0];
 
   function updateSnapshot(patch: (snapshot: Snapshot) => Snapshot) {
     setPlayMode("idle");
     setDraft((current) => {
-      if (!current) return current;
+      if (!current || !snapshot) return current;
       return {
         ...current,
-        snapshots: current.snapshots.map((item, itemIndex) => itemIndex === index ? patch(item) : item),
+        snapshots: current.snapshots.map((item) => item.id === snapshot.id ? patch(item) : item),
       };
     });
   }
 
-  function addRally() {
-    if (!draft || draft.snapshots.length >= 40) return;
-    const source = draft.snapshots[index];
-    if (!source) return;
-    const snapshots = [...draft.snapshots, copySnapshot(source)];
+  function addFollow() {
+    if (!draft || !snapshot || draft.snapshots.length >= 40) return;
+    if (followChild(draft.snapshots, snapshot.id)) return;
+    const next = copySnapshot(snapshot, { parentId: snapshot.id, kind: "follow" });
     setPlayMode("idle");
-    setDraft({ ...draft, snapshots });
-    setIndex(snapshots.length - 1);
+    setDraft({ ...draft, snapshots: [...draft.snapshots, next] });
+    setRallyId(next.id);
+    setSelectedId(next.shot.hitterId);
+    setSelectedCoverId(null);
+  }
+
+  function addOption() {
+    if (!draft || !snapshot || draft.snapshots.length >= 40) return;
+    const parentId = snapshot.parentId ?? snapshot.id;
+    if (optionChildren(draft.snapshots, parentId).length >= MAX_OPTIONS) return;
+    const next = copySnapshot(snapshot, { parentId, kind: "option" });
+    setPlayMode("idle");
+    setDraft({ ...draft, snapshots: [...draft.snapshots, next] });
+    setRallyId(next.id);
+    setSelectedId(next.shot.hitterId);
+    setSelectedCoverId(null);
   }
 
   function deleteRally() {
-    if (!draft || draft.snapshots.length <= 1) return;
-    const snapshots = draft.snapshots.filter((_, itemIndex) => itemIndex !== index);
+    if (!draft || !snapshot?.parentId) return;
+    const drop = new Set(descendantIds(draft.snapshots, snapshot.id));
     setPlayMode("idle");
-    setDraft({ ...draft, snapshots });
-    setIndex(Math.min(index, snapshots.length - 1));
-  }
-
-  function moveRally(direction: -1 | 1) {
-    if (!draft) return;
-    const nextIndex = index + direction;
-    if (nextIndex < 0 || nextIndex >= draft.snapshots.length) return;
-    const snapshots = draft.snapshots.slice();
-    const [item] = snapshots.splice(index, 1);
-    if (!item) return;
-    snapshots.splice(nextIndex, 0, item);
-    setPlayMode("idle");
-    setDraft({ ...draft, snapshots });
-    setIndex(nextIndex);
+    setDraft({ ...draft, snapshots: draft.snapshots.filter((item) => !drop.has(item.id)) });
+    const parent = draft.snapshots.find((item) => item.id === snapshot.parentId);
+    setRallyId(snapshot.parentId);
+    setSelectedCoverId(null);
+    if (parent) setSelectedId(parent.shot.hitterId);
   }
 
   if (missing) {
@@ -144,6 +161,7 @@ function Editor({ id }: { id: string }) {
   const shuttle = playing && !reduced ? pose?.shuttle ?? null : null;
   const titleMissing = draft.title.trim().length === 0;
   const shotLabel = shotProfile(snapshot.shot.type).label;
+  const stepLabel = rallyLabel(draft.snapshots, snapshot);
 
   return (
     <div className="flex min-h-dvh w-full max-w-full flex-col overflow-x-hidden lg:h-dvh lg:overflow-hidden">
@@ -168,19 +186,48 @@ function Editor({ id }: { id: string }) {
       <div className="grid min-h-0 w-full flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="flex min-h-[520px] min-w-0 flex-1 flex-col items-center px-4 py-3 lg:min-h-0">
           <p className="mb-2 text-sm text-ink/70" aria-live="polite">
-            Rally {index + 1} · {shotLabel}
+            {stepLabel} · {shotLabel}
             {playing ? " · playing" : ""}
           </p>
+          <CourtToolbox
+            disabled={playing}
+            coverCount={(snapshot.coverAreas ?? []).length}
+            selectedCoverId={selectedCoverId}
+            onAddCoverArea={() => {
+              const areas = snapshot.coverAreas ?? [];
+              if (areas.length >= MAX_COVER_AREAS) return;
+              const next = createCoverArea(format, snapshot.shot.hitterId, areas);
+              setSelectedCoverId(next.id);
+              updateSnapshot((current) => ({
+                ...current,
+                coverAreas: [...(current.coverAreas ?? []), next],
+              }));
+            }}
+            onDeleteCoverArea={() => {
+              if (!selectedCoverId) return;
+              updateSnapshot((current) => ({
+                ...current,
+                coverAreas: (current.coverAreas ?? []).filter((area) => area.id !== selectedCoverId),
+              }));
+              setSelectedCoverId(null);
+            }}
+          />
           <div className="flex h-full min-h-0 w-full min-w-0 flex-1 items-center justify-center overflow-hidden">
             <BadmintonCourt
               format={format}
               players={players}
               shot={snapshot.shot}
+              coverAreas={snapshot.coverAreas ?? []}
+              selectedCoverId={selectedCoverId}
               selectedId={selectedId}
               interactive={!playing}
               shuttle={shuttle}
               showArrow={!playing || reduced}
-              onSelect={setSelectedId}
+              onSelect={(id) => {
+                setSelectedCoverId(null);
+                setSelectedId(id);
+              }}
+              onSelectCover={(id) => setSelectedCoverId(id)}
               onMovePlayer={(playerId, point) => {
                 updateSnapshot((current) => ({
                   ...current,
@@ -193,10 +240,23 @@ function Editor({ id }: { id: string }) {
                   shot: { ...current.shot, target: point },
                 }));
               }}
+              onMoveCoverArea={(id, bounds) => {
+                updateSnapshot((current) => ({
+                  ...current,
+                  coverAreas: (current.coverAreas ?? []).map((area) => area.id === id ? { ...area, ...bounds } : area),
+                }));
+              }}
+              onDeleteCoverArea={(id) => {
+                updateSnapshot((current) => ({
+                  ...current,
+                  coverAreas: (current.coverAreas ?? []).filter((area) => area.id !== id),
+                }));
+                if (selectedCoverId === id) setSelectedCoverId(null);
+              }}
             />
           </div>
           <p className="mt-2 text-center text-xs text-ink/50">
-            Drag a player to move them. Drag the gold mark, or click the opposite half, to aim the shuttlecock. Arrow keys nudge the selected player.
+            Use Tools to add a cover area, then drag it into shape. Click × or Delete cover area to remove it.
           </p>
         </div>
         <ShotRail
@@ -227,22 +287,26 @@ function Editor({ id }: { id: string }) {
         />
       </div>
       <Filmstrip
-        format={format}
         snapshots={draft.snapshots}
-        selectedIndex={index}
+        rallyId={snapshot.id}
         playing={playing}
-        onSelect={(next) => {
+        onSelect={(id) => {
           setPlayMode("idle");
-          setIndex(next);
-          const chosen = draft.snapshots[next];
+          setRallyId(id);
+          setSelectedCoverId(null);
+          const chosen = draft.snapshots.find((item) => item.id === id);
           if (chosen) setSelectedId(chosen.shot.hitterId);
         }}
-        onAdd={addRally}
+        onFollow={addFollow}
+        onAddOption={addOption}
         onDelete={deleteRally}
-        onMove={moveRally}
         onPlay={() => setPlayMode("one")}
-        onPlayAll={() => {
-          setIndex(0);
+        onPlayPath={() => {
+          const line = pathTo(draft.snapshots, snapshot.id);
+          const opening = line[0];
+          if (!opening) return;
+          setPathEndId(snapshot.id);
+          setRallyId(opening.id);
           setPlayMode("all");
         }}
         onStop={() => setPlayMode("idle")}

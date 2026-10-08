@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { shotProfile, type Format, type Snapshot } from "@/domain/badminton";
+import { pathTo, shotProfile, type Snapshot } from "@/domain/badminton";
 import { previousPlayers, rallyFrame } from "@/domain/playback";
 
 export type PlayMode = "idle" | "one" | "all";
@@ -8,12 +8,12 @@ export type RallyPose = ReturnType<typeof rallyFrame>;
 export function useRallyPlayback(args: {
   playing: boolean;
   mode: PlayMode;
-  format: Format;
   snapshots: Snapshot[];
-  index: number;
+  rallyId: string;
+  pathEndId: string | null;
   reduced: boolean;
   durationScale: number;
-  onAdvance: (index: number) => void;
+  onAdvance: (id: string) => void;
   onStop: () => void;
 }): RallyPose | null {
   const onAdvance = useRef(args.onAdvance);
@@ -27,14 +27,24 @@ export function useRallyPlayback(args: {
       setPose(null);
       return;
     }
-    const current = args.snapshots[args.index];
+    const path = args.mode === "all"
+      ? pathTo(args.snapshots, args.pathEndId ?? args.rallyId)
+      : args.snapshots.filter((item) => item.id === args.rallyId);
+    const current = path.find((item) => item.id === args.rallyId) ?? path[0];
     if (!current) return;
-    const previous = previousPlayers(args.format, args.snapshots, args.index);
+    const previous = previousPlayers(args.snapshots, current);
     let frame = 0;
     let timer = 0;
     const finish = () => {
-      if (args.mode === "all" && args.index < args.snapshots.length - 1) onAdvance.current(args.index + 1);
-      else onStop.current();
+      if (args.mode === "all") {
+        const step = path.findIndex((item) => item.id === current.id);
+        const next = path[step + 1];
+        if (next) {
+          onAdvance.current(next.id);
+          return;
+        }
+      }
+      onStop.current();
     };
 
     if (args.reduced) {
@@ -56,7 +66,7 @@ export function useRallyPlayback(args: {
       cancelAnimationFrame(frame);
       window.clearTimeout(timer);
     };
-  }, [args.durationScale, args.format, args.index, args.mode, args.playing, args.reduced, args.snapshots]);
+  }, [args.durationScale, args.mode, args.pathEndId, args.playing, args.rallyId, args.reduced, args.snapshots]);
 
   return pose;
 }

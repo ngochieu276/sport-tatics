@@ -22,14 +22,30 @@ export const playerStateSchema = z.object({
   y: pointSchema.shape.y,
 });
 
+export const boundsSchema = z.object({
+  x0: z.number().finite().min(0).max(1),
+  x1: z.number().finite().min(0).max(1),
+  y0: z.number().finite().min(0).max(1),
+  y1: z.number().finite().min(0).max(1),
+});
+
+export const coverAreaSchema = boundsSchema.extend({
+  id: z.string().uuid(),
+});
+
+export const branchKindSchema = z.enum(["follow", "option"]);
+
 export const snapshotSchema = z.object({
   id: z.string().uuid(),
+  parentId: z.string().uuid().nullable(),
+  kind: branchKindSchema.nullable(),
   players: z.array(playerStateSchema).min(2).max(4),
   shot: z.object({
     hitterId: playerSlotSchema,
     type: shotTypeSchema,
     target: pointSchema,
   }),
+  coverAreas: z.array(coverAreaSchema).max(8, "A rally can hold 8 cover areas"),
 });
 
 export const credentialsSchema = z.object({

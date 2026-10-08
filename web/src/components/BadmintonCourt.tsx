@@ -1,5 +1,6 @@
 import { useId, useRef, type PointerEvent, type KeyboardEvent } from "react";
 import {
+  applyCoverHandle,
   clampPlayer,
   clampTarget,
   contains,
@@ -8,6 +9,9 @@ import {
   shotProfile,
   SLOT_LABELS,
   targetBounds,
+  type Bounds,
+  type CoverArea,
+  type CoverHandle,
   type Format,
   type PlayerSlot,
   type PlayerState,
@@ -21,19 +25,25 @@ const DRAW_H = 1340;
 
 type Drag =
   | { kind: "player"; id: PlayerSlot }
-  | { kind: "target" };
+  | { kind: "target" }
+  | { kind: "cover"; id: string; handle: CoverHandle; origin: Point; bounds: Bounds };
 
 type BadmintonCourtProps = {
   format: Format;
   players: PlayerState[];
   shot: Shot;
+  coverAreas: CoverArea[];
+  selectedCoverId: string | null;
   selectedId: PlayerSlot | null;
   interactive: boolean;
   shuttle: Point | null;
   showArrow: boolean;
   onSelect: (id: PlayerSlot) => void;
+  onSelectCover: (id: string) => void;
   onMovePlayer: (id: PlayerSlot, point: Point) => void;
   onMoveTarget: (point: Point) => void;
+  onMoveCoverArea: (id: string, area: Bounds) => void;
+  onDeleteCoverArea: (id: string) => void;
 };
 
 function toSvg(point: Point): Point {
@@ -54,17 +64,33 @@ function curve(from: Point, to: Point, arc: number): string {
   return `M ${start.x} ${start.y} Q ${control.x} ${control.y} ${end.x} ${end.y}`;
 }
 
+const COVER_HANDLES: { handle: Exclude<CoverHandle, "move">; cursor: string }[] = [
+  { handle: "x0y1", cursor: "nwse-resize" },
+  { handle: "y1", cursor: "ns-resize" },
+  { handle: "x1y1", cursor: "nesw-resize" },
+  { handle: "x1", cursor: "ew-resize" },
+  { handle: "x1y0", cursor: "nwse-resize" },
+  { handle: "y0", cursor: "ns-resize" },
+  { handle: "x0y0", cursor: "nesw-resize" },
+  { handle: "x0", cursor: "ew-resize" },
+];
+
 export function BadmintonCourt({
   format,
   players,
   shot,
+  coverAreas,
+  selectedCoverId,
   selectedId,
   interactive,
   shuttle,
   showArrow,
   onSelect,
+  onSelectCover,
   onMovePlayer,
   onMoveTarget,
+  onMoveCoverArea,
+  onDeleteCoverArea,
 }: BadmintonCourtProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const drag = useRef<Drag | null>(null);
@@ -83,6 +109,10 @@ export function BadmintonCourt({
       onMovePlayer(current.id, clampPlayer(format, current.id, point));
       return;
     }
+    if (current.kind === "cover") {
+      onMoveCoverArea(current.id, applyCoverHandle(format, current.bounds, current.handle, current.origin, point));
+      return;
+    }
     onMoveTarget(clampTarget(format, shot.hitterId, point));
   }
 
@@ -92,13 +122,14 @@ export function BadmintonCourt({
     svgRef.current.setPointerCapture(event.pointerId);
     drag.current = next;
     if (next.kind === "player") onSelect(next.id);
-    else moveDrag(event);
+    if (next.kind === "cover") onSelectCover(next.id);
+    if (next.kind !== "player") moveDrag(event);
   }
 
   function onCourtPointerDown(event: PointerEvent<SVGSVGElement>) {
     if (!interactive) return;
     const target = event.target as Element;
-    if (target.closest("[data-player], [data-target]")) return;
+    if (target.closest("[data-player], [data-target], [data-cover]")) return;
     const point = pointFrom(event);
     if (!point || !contains(targetBounds(format, shot.hitterId), point)) return;
     begin(event, { kind: "target" });
@@ -180,6 +211,20 @@ export function BadmintonCourt({
       <text x={DRAW_W / 2} y={DRAW_H + 28} textAnchor="middle" fill="#e7f6ee" fontSize="22" fontFamily="Outfit, sans-serif">
         Near
       </text>
+      {coverAreas.map((area) => (
+        <CoverBox
+          key={area.id}
+          area={area}
+          selected={area.id === selectedCoverId}
+          interactive={interactive}
+          onBegin={(event, handle) => {
+            const point = pointFrom(event);
+            if (!point) return;
+            begin(event, { kind: "cover", id: area.id, handle, origin: point, bounds: area });
+          }}
+          onDelete={() => onDeleteCoverArea(area.id)}
+        />
+      ))}
       <defs>
         <marker id={markerId} markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
           <path d="M0,0 L8,3 L0,6 Z" fill="#e2a51a" />
@@ -267,5 +312,99 @@ export function BadmintonCourt({
         );
       })}
     </svg>
+  );
+}
+
+function CoverBox({
+  area,
+  selected,
+  interactive,
+  onBegin,
+  onDelete,
+}: {
+  area: CoverArea;
+  selected: boolean;
+  interactive: boolean;
+  onBegin: (event: PointerEvent<SVGElement>, handle: CoverHandle) => void;
+  onDelete: () => void;
+}) {
+  const left = area.x0 * DRAW_W;
+  const right = area.x1 * DRAW_W;
+  const top = (1 - area.y1) * DRAW_H;
+  const bottom = (1 - area.y0) * DRAW_H;
+  const width = right - left;
+  const height = bottom - top;
+  const midX = left + width / 2;
+  const midY = top + height / 2;
+  const handlePoints: Record<Exclude<CoverHandle, "move">, Point> = {
+    x0y1: { x: left, y: top },
+    y1: { x: midX, y: top },
+    x1y1: { x: right, y: top },
+    x1: { x: right, y: midY },
+    x1y0: { x: right, y: bottom },
+    y0: { x: midX, y: bottom },
+    x0y0: { x: left, y: bottom },
+    x0: { x: left, y: midY },
+  };
+  return (
+    <g data-cover="true">
+      <rect
+        x={left}
+        y={top}
+        width={width}
+        height={height}
+        fill="#7dd3fc"
+        fillOpacity={selected ? 0.34 : 0.22}
+        stroke={selected ? "#0369a1" : "#38bdf8"}
+        strokeWidth={selected ? 5 : 4}
+        strokeDasharray="14 10"
+        className={interactive ? "cursor-move" : ""}
+        onPointerDown={(event) => onBegin(event, "move")}
+      />
+      <text
+        x={midX}
+        y={midY + 7}
+        textAnchor="middle"
+        fill="#082f49"
+        fontSize="20"
+        fontWeight="700"
+        fontFamily="Outfit, sans-serif"
+        style={{ pointerEvents: "none" }}
+      >
+        Cover
+      </text>
+      {interactive && selected && COVER_HANDLES.map(({ handle, cursor }) => {
+        const point = handlePoints[handle];
+        return (
+          <rect
+            key={handle}
+            x={point.x - 12}
+            y={point.y - 12}
+            width="24"
+            height="24"
+            rx="4"
+            fill="#f8fbff"
+            stroke="#082f49"
+            strokeWidth="3"
+            style={{ cursor }}
+            onPointerDown={(event) => onBegin(event, handle)}
+          />
+        );
+      })}
+      {interactive && selected && (
+        <g
+          transform={`translate(${right} ${top})`}
+          className="cursor-pointer"
+          onPointerDown={(event) => {
+            event.stopPropagation();
+            onDelete();
+          }}
+        >
+          <circle r="16" fill="#9a3412" stroke="#f4fff8" strokeWidth="3" />
+          <text textAnchor="middle" dy="6" fill="#fff" fontSize="18" fontWeight="700" style={{ pointerEvents: "none" }}>×</text>
+          <title>Delete cover area</title>
+        </g>
+      )}
+    </g>
   );
 }

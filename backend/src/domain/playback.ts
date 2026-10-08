@@ -1,7 +1,5 @@
 import {
-  defaultStances,
   shotProfile,
-  type Format,
   type PlayerState,
   type Point,
   type Snapshot,
@@ -42,13 +40,9 @@ export function shuttlePoint(from: Point, to: Point, arc: number, t: number): Po
   return quadraticBezier(from, shuttleControl(from, to, arc), to, t);
 }
 
-export function previousPlayers(
-  format: Format,
-  snapshots: Snapshot[],
-  index: number,
-): PlayerState[] {
-  if (index <= 0) return defaultStances(format);
-  return snapshots[index - 1]?.players ?? defaultStances(format);
+export function previousPlayers(snapshots: Snapshot[], current: Snapshot): PlayerState[] {
+  if (!current.parentId) return current.players;
+  return snapshots.find((item) => item.id === current.parentId)?.players ?? current.players;
 }
 
 export function rallyFrame(args: {

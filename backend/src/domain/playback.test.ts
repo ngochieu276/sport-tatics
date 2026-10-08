@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { createInitialSnapshot, defaultStances, shotProfile } from "./badminton.js";
+import { copySnapshot, createInitialSnapshot, defaultStances, shotProfile } from "./badminton.js";
 import { distanceToChord, previousPlayers, rallyFrame, shuttlePoint } from "./playback.js";
 
 test("a rally starts at the previous positions and finishes on the snapshot", () => {
@@ -20,12 +20,13 @@ test("a rally starts at the previous positions and finishes on the snapshot", ()
   assert.deepEqual(end.shuttle, current.shot.target);
 });
 
-test("the first rally leaves the default stance and later rallies leave the previous snapshot", () => {
+test("the opening rally starts where its players already are, and the next rally leaves that rally", () => {
   const first = createInitialSnapshot("doubles", crypto.randomUUID());
-  const second = createInitialSnapshot("doubles", crypto.randomUUID());
-  second.players = second.players.map((player) => ({ ...player, x: player.x + 0.05 }));
-  assert.deepEqual(previousPlayers("doubles", [first], 0), defaultStances("doubles"));
-  assert.equal(previousPlayers("doubles", [first, second], 1), first.players);
+  const second = copySnapshot(first);
+  second.players = second.players.map((player) => ({ ...player, x: Math.min(0.9, player.x + 0.05) }));
+  assert.equal(previousPlayers([first], first), first.players);
+  assert.equal(previousPlayers([first, second], second), first.players);
+  assert.notEqual(previousPlayers([first, second], second), defaultStances("doubles"));
 });
 
 test("a clear bows farther off the straight line than a smash", () => {

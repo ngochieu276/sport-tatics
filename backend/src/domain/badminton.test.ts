@@ -5,11 +5,15 @@ import {
   NET_Y,
   SINGLES_LEFT,
   SINGLES_RIGHT,
+  applyCoverHandle,
+  clampCoverArea,
   clampPlayer,
   clampTarget,
   courtSegments,
+  copySnapshot,
   createInitialSnapshot,
   defaultStances,
+  rallyTreeError,
   shotProfile,
   slotsFor,
   snapshotError,
@@ -48,6 +52,32 @@ test("default stances and the seeded rally match the format", () => {
   assert.equal(snapshotError("doubles", doubles), null);
   assert.equal(singles.shot.type, "lowServe");
   assert.equal(doubles.players.length, 4);
+});
+
+test("a rally can lead to three next rallies and no more", () => {
+  const root = createInitialSnapshot("singles", crypto.randomUUID());
+  const options = [0, 1, 2, 3].map(() => copySnapshot(root));
+  assert.equal(rallyTreeError([root, ...options.slice(0, 3)]), null);
+  assert.equal(rallyTreeError([root, ...options]), "A rally can lead to at most 3 options");
+});
+
+test("cover area stays on the court and can be reshaped", () => {
+  const smashed = clampCoverArea("singles", { x0: -1, y0: -1, x1: 2, y1: 2 });
+  assert.ok(smashed.x0 >= SINGLES_LEFT);
+  assert.ok(smashed.x1 <= SINGLES_RIGHT);
+  assert.ok(smashed.y0 >= 0);
+  assert.ok(smashed.y1 <= 1);
+  const start = { x0: 0.2, y0: 0.2, x1: 0.5, y1: 0.4 };
+  const taller = applyCoverHandle("doubles", start, "y1", { x: 0.3, y: 0.4 }, { x: 0.3, y: 0.7 });
+  assert.ok(taller.y1 > start.y1);
+  const moved = applyCoverHandle("doubles", start, "move", { x: 0.2, y: 0.2 }, { x: 0.3, y: 0.25 });
+  assert.ok(Math.abs((moved.x1 - moved.x0) - (start.x1 - start.x0)) < 1e-9);
+});
+
+test("a rally can have no cover areas", () => {
+  const snapshot = createInitialSnapshot("singles", crypto.randomUUID());
+  assert.deepEqual(snapshot.coverAreas, []);
+  assert.equal(snapshotError("singles", snapshot), null);
 });
 
 test("a player cannot be saved across the net", () => {

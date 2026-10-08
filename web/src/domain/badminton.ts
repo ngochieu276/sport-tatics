@@ -38,11 +38,26 @@ export type Shot = {
   target: Point;
 };
 
+export type Bounds = { x0: number; x1: number; y0: number; y1: number };
+export type CoverArea = Bounds & { id: string };
+
+export type BranchKind = "follow" | "option";
+
 export type Snapshot = {
   id: string;
+  parentId: string | null;
+  kind: BranchKind | null;
   players: PlayerState[];
   shot: Shot;
+  coverAreas: CoverArea[];
 };
+
+export const COVER_MIN = 0.06;
+export const MAX_COVER_AREAS = 8;
+export type CoverHandle = "move" | "x0" | "x1" | "y0" | "y1" | "x0y0" | "x0y1" | "x1y0" | "x1y1";
+
+export const MAX_NEXT_RALLIES = 3;
+export const MAX_OPTIONS = 3;
 
 export const COURT = {
   lengthM: 13.4,
@@ -72,8 +87,6 @@ export type CourtSegment = {
   y2: number;
   kind: LineKind;
 };
-
-export type Bounds = { x0: number; x1: number; y0: number; y1: number };
 
 export type ShotProfile = {
   type: ShotType;
@@ -188,6 +201,69 @@ export function clampTarget(format: Format, hitter: PlayerSlot, point: Point): P
   return clampToBounds(targetBounds(format, hitter), point);
 }
 
+export function courtPlayBounds(format: Format): Bounds {
+  const x0 = format === "singles" ? SINGLES_LEFT : 0;
+  const x1 = format === "singles" ? SINGLES_RIGHT : 1;
+  return {
+    x0: x0 + COURT_MARGIN,
+    x1: x1 - COURT_MARGIN,
+    y0: COURT_MARGIN,
+    y1: 1 - COURT_MARGIN,
+  };
+}
+
+export function defaultCoverArea(format: Format, hitter: PlayerSlot): Bounds {
+  return targetBounds(format, hitter);
+}
+
+export function createCoverArea(format: Format, hitter: PlayerSlot, existing: CoverArea[]): CoverArea {
+  const base = defaultCoverArea(format, hitter);
+  const shift = (existing.length % 4) * 0.05;
+  const bounds = clampCoverArea(format, {
+    x0: base.x0 + shift,
+    y0: base.y0 + shift,
+    x1: base.x1,
+    y1: base.y1,
+  });
+  return { id: crypto.randomUUID(), ...bounds };
+}
+
+export function clampCoverArea(format: Format, area: Bounds): Bounds {
+  const court = courtPlayBounds(format);
+  let x0 = Math.min(area.x0, area.x1);
+  let x1 = Math.max(area.x0, area.x1);
+  let y0 = Math.min(area.y0, area.y1);
+  let y1 = Math.max(area.y0, area.y1);
+  x0 = Math.min(Math.max(x0, court.x0), court.x1 - COVER_MIN);
+  y0 = Math.min(Math.max(y0, court.y0), court.y1 - COVER_MIN);
+  x1 = Math.max(x0 + COVER_MIN, Math.min(x1, court.x1));
+  y1 = Math.max(y0 + COVER_MIN, Math.min(y1, court.y1));
+  return { x0, y0, x1, y1 };
+}
+
+export function applyCoverHandle(
+  format: Format,
+  start: Bounds,
+  handle: CoverHandle,
+  origin: Point,
+  point: Point,
+): Bounds {
+  if (handle === "move") {
+    const court = courtPlayBounds(format);
+    const width = start.x1 - start.x0;
+    const height = start.y1 - start.y0;
+    const x0 = Math.min(Math.max(start.x0 + point.x - origin.x, court.x0), court.x1 - width);
+    const y0 = Math.min(Math.max(start.y0 + point.y - origin.y, court.y0), court.y1 - height);
+    return { x0, y0, x1: x0 + width, y1: y0 + height };
+  }
+  const next = { ...start };
+  if (handle.includes("x0")) next.x0 = point.x;
+  if (handle.includes("x1")) next.x1 = point.x;
+  if (handle === "y0" || handle.endsWith("y0")) next.y0 = point.y;
+  if (handle === "y1" || handle.endsWith("y1")) next.y1 = point.y;
+  return clampCoverArea(format, next);
+}
+
 export function defaultStances(format: Format): PlayerState[] {
   if (format === "singles") {
     return [
@@ -208,24 +284,102 @@ export function createInitialSnapshot(format: Format, id = crypto.randomUUID()):
   const rawTarget = format === "singles" ? { x: 0.42, y: 0.66 } : { x: 0.3, y: 0.66 };
   return {
     id,
+    parentId: null,
+    kind: null,
     players: defaultStances(format),
     shot: {
       hitterId,
       type: "lowServe",
       target: clampTarget(format, hitterId, rawTarget),
     },
+    coverAreas: [],
   };
 }
 
-export function copySnapshot(source: Snapshot): Snapshot {
+export function childrenOf(snapshots: Snapshot[], parentId: string): Snapshot[] {
+  return snapshots.filter((item) => item.parentId === parentId);
+}
+
+export function followChild(snapshots: Snapshot[], parentId: string): Snapshot | undefined {
+  return childrenOf(snapshots, parentId).find((item) => item.kind === "follow");
+}
+
+export function optionChildren(snapshots: Snapshot[], parentId: string): Snapshot[] {
+  return childrenOf(snapshots, parentId).filter((item) => item.kind !== "follow");
+}
+
+export function rallyLabel(snapshots: Snapshot[], snapshot: Snapshot): string {
+  if (!snapshot.parentId) return "Opening";
+  if (snapshot.kind === "follow") return "Follow";
+  return `Option ${optionChildren(snapshots, snapshot.parentId).findIndex((item) => item.id === snapshot.id) + 1}`;
+}
+
+export function pathTo(snapshots: Snapshot[], id: string): Snapshot[] {
+  const byId = new Map(snapshots.map((item) => [item.id, item]));
+  const path: Snapshot[] = [];
+  const seen = new Set<string>();
+  let cursor = byId.get(id);
+  while (cursor && !seen.has(cursor.id)) {
+    seen.add(cursor.id);
+    path.push(cursor);
+    cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
+  }
+  return path.reverse();
+}
+
+export function descendantIds(snapshots: Snapshot[], id: string): string[] {
+  const ids = [id];
+  for (const child of childrenOf(snapshots, id)) ids.push(...descendantIds(snapshots, child.id));
+  return ids;
+}
+
+export function rallyTreeError(snapshots: Snapshot[]): string | null {
+  if (snapshots.length === 0) return "A tactic needs at least one rally";
+  const ids = new Set<string>();
+  for (const snapshot of snapshots) {
+    if (ids.has(snapshot.id)) return "Each rally must have its own id";
+    ids.add(snapshot.id);
+  }
+  if (snapshots.filter((item) => item.parentId === null).length !== 1) {
+    return "A tactic needs one opening rally";
+  }
+  for (const snapshot of snapshots) {
+    if (snapshot.parentId === null) continue;
+    if (!ids.has(snapshot.parentId)) return "A next rally must follow a rally in this tactic";
+    const siblings = childrenOf(snapshots, snapshot.parentId);
+    if (siblings.filter((item) => item.kind === "follow").length > 1) {
+      return "A rally can only have one follow-on rally";
+    }
+    if (siblings.filter((item) => item.kind !== "follow").length > MAX_OPTIONS) {
+      return "A rally can lead to at most 3 options";
+    }
+    const seen = new Set<string>();
+    let cursor: string | null = snapshot.parentId;
+    while (cursor) {
+      if (cursor === snapshot.id || seen.has(cursor)) return "Rally options cannot loop";
+      seen.add(cursor);
+      const parent = snapshots.find((item) => item.id === cursor);
+      cursor = parent?.parentId ?? null;
+    }
+  }
+  return null;
+}
+
+export function copySnapshot(
+  source: Snapshot,
+  link?: { parentId: string; kind: BranchKind },
+): Snapshot {
   return {
     id: crypto.randomUUID(),
+    parentId: link?.parentId ?? source.id,
+    kind: link?.kind ?? "option",
     players: source.players.map((player) => ({ ...player })),
     shot: {
       hitterId: source.shot.hitterId,
       type: source.shot.type,
       target: { ...source.shot.target },
     },
+    coverAreas: (source.coverAreas ?? []).map((area) => ({ ...area, id: crypto.randomUUID() })),
   };
 }
 
@@ -248,6 +402,25 @@ export function snapshotError(format: Format, snapshot: Snapshot): string | null
   }
   if (!contains(targetBounds(format, snapshot.shot.hitterId), snapshot.shot.target)) {
     return "The shuttlecock must land in the opposite half";
+  }
+  const coverAreas = snapshot.coverAreas ?? [];
+  if (coverAreas.length > MAX_COVER_AREAS) return "A rally can hold 8 cover areas";
+  const coverIds = new Set<string>();
+  const court = courtPlayBounds(format);
+  for (const cover of coverAreas) {
+    if (coverIds.has(cover.id)) return "Each cover area must have its own id";
+    coverIds.add(cover.id);
+    if (cover.x1 - cover.x0 < COVER_MIN - 1e-4 || cover.y1 - cover.y0 < COVER_MIN - 1e-4) {
+      return "Cover area is too small";
+    }
+    if (
+      cover.x0 < court.x0 - 1e-3 ||
+      cover.y0 < court.y0 - 1e-3 ||
+      cover.x1 > court.x1 + 1e-3 ||
+      cover.y1 > court.y1 + 1e-3
+    ) {
+      return "Cover area must stay on the court";
+    }
   }
   return null;
 }

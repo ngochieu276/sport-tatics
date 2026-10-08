@@ -1,6 +1,14 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import type { Context } from "hono";
-import { createInitialSnapshot, snapshotError, type Format, type Snapshot } from "./domain/badminton.js";
+import {
+  createInitialSnapshot,
+  rallyTreeError,
+  snapshotError,
+  type BranchKind,
+  type CoverArea,
+  type Format,
+  type Snapshot,
+} from "./domain/badminton.js";
 import {
   tacticCreateSchema,
   tacticPatchSchema,
@@ -14,11 +22,55 @@ function asTags(value: Prisma.JsonValue): string[] {
   return Array.isArray(value) ? value.filter((tag): tag is string => typeof tag === "string") : [];
 }
 
-function asSnapshot(row: { id: string; players: Prisma.JsonValue; shot: Prisma.JsonValue }): Snapshot {
+function asBounds(raw: Record<string, unknown>): Omit<CoverArea, "id"> | null {
+  if (
+    typeof raw.x0 === "number" &&
+    typeof raw.x1 === "number" &&
+    typeof raw.y0 === "number" &&
+    typeof raw.y1 === "number"
+  ) {
+    return { x0: raw.x0, x1: raw.x1, y0: raw.y0, y1: raw.y1 };
+  }
+  return null;
+}
+
+function asCoverAreas(value: Prisma.JsonValue): CoverArea[] {
+  const rows = Array.isArray(value)
+    ? value
+    : value && typeof value === "object"
+      ? [value]
+      : [];
+  return rows.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const raw = item as Record<string, unknown>;
+    const bounds = asBounds(raw);
+    if (!bounds) return [];
+    return [{
+      id: typeof raw.id === "string" ? raw.id : crypto.randomUUID(),
+      ...bounds,
+    }];
+  });
+}
+
+function asKind(value: string | null): BranchKind | null {
+  return value === "follow" || value === "option" ? value : null;
+}
+
+function asSnapshot(row: {
+  id: string;
+  parentId: string | null;
+  branchKind: string | null;
+  players: Prisma.JsonValue;
+  shot: Prisma.JsonValue;
+  coverArea: Prisma.JsonValue;
+}, _format: Format): Snapshot {
   return {
     id: row.id,
+    parentId: row.parentId,
+    kind: asKind(row.branchKind),
     players: row.players as Snapshot["players"],
     shot: row.shot as Snapshot["shot"],
+    coverAreas: asCoverAreas(row.coverArea),
   };
 }
 
@@ -53,7 +105,7 @@ function snapshotListError(format: Format, snapshots: Snapshot[]): string | null
     const message = snapshotError(format, snapshot);
     if (message) return message;
   }
-  return null;
+  return rallyTreeError(snapshots);
 }
 
 async function loadOwned(db: PrismaClient, userId: string, tacticId: string): Promise<TacticDetail | null> {
@@ -62,14 +114,15 @@ async function loadOwned(db: PrismaClient, userId: string, tacticId: string): Pr
     include: { snapshots: { orderBy: { position: "asc" } } },
   });
   if (!row || (row.format !== "singles" && row.format !== "doubles")) return null;
+  const format = row.format;
   return {
     id: row.id,
     sport: "badminton",
-    format: row.format,
+    format,
     title: row.title,
     notes: row.notes,
     tags: asTags(row.tags),
-    snapshots: row.snapshots.map(asSnapshot),
+    snapshots: row.snapshots.map((snapshot) => asSnapshot(snapshot, format)),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -127,31 +180,30 @@ export async function createTactic(db: PrismaClient, c: Context<AppEnv>) {
   const notes = parsed.data.notes?.trim() ?? "";
   const tags = normalizeTags(parsed.data.tags ?? []);
   const snapshot = createInitialSnapshot(parsed.data.format);
-  await db.$transaction([
-    db.tactic.create({
-      data: {
-        id,
-        userId: user.id,
-        sport: "badminton",
-        format: parsed.data.format,
-        title: parsed.data.title,
-        notes,
-        tags: json(tags),
-        snapshotCount: 1,
-        createdAt: now,
-        updatedAt: now,
+  await db.tactic.create({
+    data: {
+      id,
+      userId: user.id,
+      sport: "badminton",
+      format: parsed.data.format,
+      title: parsed.data.title,
+      notes,
+      tags: json(tags),
+      snapshotCount: 1,
+      createdAt: now,
+      updatedAt: now,
+      snapshots: {
+        create: {
+          id: snapshot.id,
+          position: 0,
+          branchKind: snapshot.kind,
+          players: json(snapshot.players),
+          shot: json(snapshot.shot),
+          coverArea: json(snapshot.coverAreas),
+        },
       },
-    }),
-    db.snapshot.create({
-      data: {
-        id: snapshot.id,
-        tacticId: id,
-        position: 0,
-        players: json(snapshot.players),
-        shot: json(snapshot.shot),
-      },
-    }),
-  ]);
+    },
+  });
   const tactic: TacticDetail = {
     id,
     sport: "badminton",
@@ -210,8 +262,8 @@ export async function patchTactic(db: PrismaClient, c: Context<AppEnv>) {
   }
   const message = snapshotListError(existing.format, snapshots);
   if (message) return c.json({ error: message }, 400);
-  await db.$transaction([
-    db.tactic.update({
+  await db.$transaction(async (tx) => {
+    await tx.tactic.update({
       where: { id: tacticId },
       data: {
         title: parsed.data.title,
@@ -220,18 +272,21 @@ export async function patchTactic(db: PrismaClient, c: Context<AppEnv>) {
         snapshotCount: snapshots.length,
         updatedAt: now,
       },
-    }),
-    db.snapshot.deleteMany({ where: { tacticId } }),
-    db.snapshot.createMany({
+    });
+    await tx.snapshot.deleteMany({ where: { tacticId } });
+    await tx.snapshot.createMany({
       data: snapshots.map((snapshot, position) => ({
         id: snapshot.id,
         tacticId,
         position,
+        parentId: snapshot.parentId,
+        branchKind: snapshot.kind,
         players: json(snapshot.players),
         shot: json(snapshot.shot),
+        coverArea: json(snapshot.coverAreas),
       })),
-    }),
-  ]);
+    });
+  });
   const tactic: TacticDetail = {
     id: tacticId,
     sport: "badminton",

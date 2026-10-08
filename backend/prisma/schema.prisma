@@ -48,11 +48,14 @@ model Tactic {
 }
 
 model Snapshot {
-  id       String @id
-  tacticId String @map("tactic_id")
+  id       String  @id
+  tacticId String  @map("tactic_id")
   position Int
-  players  Json
-  shot     Json
+  parentId   String? @map("parent_id")
+  branchKind String? @map("branch_kind")
+  players    Json
+  shot      Json
+  coverArea Json    @map("cover_area")
   tactic   Tactic @relation(fields: [tacticId], references: [id], onDelete: Cascade)
 
   @@unique([tacticId, position])

@@ -132,6 +132,8 @@ test("tactics stay private to the user who created them", async () => {
   const next = {
     ...tactic.snapshots[0],
     id: crypto.randomUUID(),
+    parentId: tactic.snapshots[0].id,
+    kind: "follow",
     players: tactic.snapshots[0].players.map((player: { id: string; x: number; y: number }) =>
       player.id === "nearRight" ? { ...player, x: 0.8 } : player
     ),
