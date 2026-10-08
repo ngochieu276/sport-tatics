@@ -1,4 +1,4 @@
-app = "sporttactic-api"
+app = "sporttactic-web"
 primary_region = "sin"
 
 [build]

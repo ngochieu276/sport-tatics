@@ -7,15 +7,31 @@ import { createTactic, listTactics, patchTactic, readTactic, removeTactic } from
 
 const BUILTIN_ORIGINS = [
   "https://sport-tatics.vercel.app",
+  "https://sporttactic-web.fly.dev",
   "http://localhost:5173",
+  "http://127.0.0.1:5173",
 ];
 
-function allowedOrigins(): Set<string> {
-  const fromEnv = (process.env.CORS_ORIGIN ?? "")
+function normalizeOrigin(origin: string): string {
+  return origin.trim().replace(/\/$/, "");
+}
+
+function isAllowedOrigin(origin: string | undefined): origin is string {
+  if (!origin) return false;
+  const normalized = normalizeOrigin(origin);
+  if (BUILTIN_ORIGINS.includes(normalized)) return true;
+  if (/^https:\/\/sport-tatics(?:-[a-z0-9-]+)*\.vercel\.app$/.test(normalized)) return true;
+  const extra = (process.env.CORS_ORIGIN ?? "")
     .split(",")
-    .map((origin) => origin.trim().replace(/\/$/, ""))
+    .map(normalizeOrigin)
     .filter(Boolean);
-  return new Set([...BUILTIN_ORIGINS, ...fromEnv]);
+  return extra.includes(normalized);
+}
+
+function applyCors(c: { header: (name: string, value: string) => void }, origin: string) {
+  c.header("Access-Control-Allow-Origin", origin);
+  c.header("Access-Control-Allow-Credentials", "true");
+  c.header("Vary", "Origin");
 }
 
 export function createApp(db: PrismaClient) {
@@ -23,16 +39,15 @@ export function createApp(db: PrismaClient) {
 
   app.use("/api/*", async (c, next) => {
     const requestOrigin = c.req.header("origin");
-    const allowed = requestOrigin !== undefined && allowedOrigins().has(requestOrigin.replace(/\/$/, ""));
-    if (allowed && requestOrigin) {
-      c.header("Access-Control-Allow-Origin", requestOrigin);
-      c.header("Access-Control-Allow-Credentials", "true");
-      c.header("Vary", "Origin");
-    }
+    const allowed = isAllowedOrigin(requestOrigin);
+    if (allowed) applyCors(c, requestOrigin);
     if (c.req.method === "OPTIONS") {
       if (allowed) {
         c.header("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
-        c.header("Access-Control-Allow-Headers", "Content-Type,Authorization");
+        c.header(
+          "Access-Control-Allow-Headers",
+          c.req.header("access-control-request-headers") ?? "Content-Type,Authorization",
+        );
         c.header("Access-Control-Max-Age", "600");
       }
       return c.body(null, 204);
@@ -40,11 +55,7 @@ export function createApp(db: PrismaClient) {
     try {
       await next();
     } finally {
-      if (allowed && requestOrigin) {
-        c.header("Access-Control-Allow-Origin", requestOrigin);
-        c.header("Access-Control-Allow-Credentials", "true");
-        c.header("Vary", "Origin");
-      }
+      if (allowed) applyCors(c, requestOrigin);
     }
   });
 

@@ -35,6 +35,30 @@ after(async () => {
   await prisma.$disconnect();
 });
 
+test("vercel origin can preflight the API", async () => {
+  const app = createApp(prisma);
+  const origin = "https://sport-tatics.vercel.app";
+  const preflight = await app.request("/api/auth/login", {
+    method: "OPTIONS",
+    headers: {
+      origin,
+      "access-control-request-method": "POST",
+      "access-control-request-headers": "content-type,authorization",
+    },
+  });
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get("access-control-allow-origin"), origin);
+  assert.equal(preflight.headers.get("access-control-allow-credentials"), "true");
+  const allowHeaders = (preflight.headers.get("access-control-allow-headers") ?? "").toLowerCase();
+  assert.ok(allowHeaders.includes("content-type"));
+  assert.ok(allowHeaders.includes("authorization"));
+
+  const health = await app.request("/api/health", { headers: { origin } });
+  assert.equal(health.status, 200);
+  assert.equal(health.headers.get("access-control-allow-origin"), origin);
+  assert.equal(health.headers.get("access-control-allow-credentials"), "true");
+});
+
 test("accounts can register, log in, and log out", async () => {
   const app = createApp(prisma);
   const email = testEmail("coach");
